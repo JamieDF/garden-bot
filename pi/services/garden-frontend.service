@@ -1,0 +1,16 @@
+# Garden Bot - Frontend Service
+[Unit]
+Description=Garden Bot Frontend (Vite dev server)
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/garden-bot/frontend
+ExecStart=/home/pi/garden-bot/frontend/node_modules/.bin/vite --host
+Restart=on-failure
+RestartSec=10
+Environment=NODE_ENV=development
+
+[Install]
+WantedBy=multi-user.target

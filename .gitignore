@@ -1,5 +1,37 @@
+# Python
 __pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
 venv/
-.pyc
-*.csv
+.venv/
+.env
+*.db
+*.sqlite
+
+# Node/Frontend
+node_modules/
+dist/
+build/
+.npm
+.eslintcache
+
+# IDE
 .vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Misc
+*.csv
+*.log

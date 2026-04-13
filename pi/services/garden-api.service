@@ -1,0 +1,15 @@
+# Garden Bot - API Server Service
+[Unit]
+Description=Garden Bot API Server
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/garden-bot/pi
+ExecStart=/home/pi/garden-bot/.venv/bin/uvicorn src.main:app --host 0.0.0.0 --port 8000
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

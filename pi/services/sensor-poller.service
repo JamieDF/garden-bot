@@ -1,0 +1,16 @@
+# Garden Bot - Sensor Polling Service
+[Unit]
+Description=Garden Bot Sensor Poller
+After=network.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/garden-bot/pi
+ExecStart=/home/pi/garden-bot/.venv/bin/python -m src.poller
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=/home/pi/garden-bot/.env
+
+[Install]
+WantedBy=multi-user.target
