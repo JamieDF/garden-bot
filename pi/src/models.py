@@ -37,3 +37,28 @@ class HistoryQuery(BaseModel):
     from_time: Optional[datetime] = None
     to_time: Optional[datetime] = None
     limit: int = Field(default=1000, le=10000)
+
+
+class SensorStats(BaseModel):
+    """Min/max stats for a single sensor."""
+
+    min: Optional[float] = None
+    max: Optional[float] = None
+
+
+class PeriodStats(BaseModel):
+    """Stats for all sensors in a time period."""
+
+    inside_air_temp: Optional[SensorStats] = None
+    outside_air_temp: Optional[SensorStats] = None
+    inside_humidity: Optional[SensorStats] = None
+    inside_pressure: Optional[SensorStats] = None
+
+
+class SensorStatsResponse(BaseModel):
+    """Stats response with all periods."""
+
+    day: PeriodStats
+    week: PeriodStats
+    month: PeriodStats
+    temp_diff: Optional[float] = None  # inside - outside in °C

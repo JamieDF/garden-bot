@@ -1,6 +1,6 @@
 import { useEffect, useState, useCallback } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { SensorReadings, Reading } from './types';
+import { SensorReadings, Reading, SensorStatsResponse } from './types';
 
 type TimeRange = '1h' | '24h' | '7d' | '30d';
 type ChartType = 'temperature' | 'humidity' | 'pressure';
@@ -40,6 +40,7 @@ const CHART_CONFIG: Record<ChartType, { sensors: { sensor: string; color: string
 function App() {
   const [readings, setReadings] = useState<SensorReadings | null>(null);
   const [chartData, setChartData] = useState<Reading[]>([]);
+  const [stats, setStats] = useState<SensorStatsResponse | null>(null);
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [chartType, setChartType] = useState<ChartType>('temperature');
   const [error, setError] = useState<string | null>(null);
@@ -54,6 +55,16 @@ function App() {
       setError(null);
     } catch {
       setError('Failed to connect to sensor API');
+    }
+  }, []);
+
+  const loadStats = useCallback(async () => {
+    try {
+      const res = await fetch('/api/stats');
+      const data = await res.json();
+      setStats(data);
+    } catch (err) {
+      console.error('Failed to fetch stats:', err);
     }
   }, []);
 
@@ -90,16 +101,18 @@ function App() {
 
   useEffect(() => {
     loadReadings();
+    loadStats();
     loadChartData();
-  }, [loadReadings, loadChartData]);
+  }, [loadReadings, loadStats, loadChartData]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       loadReadings();
+      loadStats();
       loadChartData();
     }, 30000);
     return () => clearInterval(interval);
-  }, [loadReadings, loadChartData]);
+  }, [loadReadings, loadStats, loadChartData]);
 
   return (
     <div className="min-h-screen bg-dark p-6">
@@ -162,6 +175,95 @@ function App() {
             </div>
           </div>
         </div>
+
+        {/* Stats Section */}
+        {stats && (
+          <div className="space-y-3">
+            <h2 className="text-xs font-semibold text-muted uppercase tracking-wider">Statistics</h2>
+            
+            {/* Temp Diff */}
+            <div className="grid grid-cols-3 gap-3">
+              <div className="bg-card rounded-xl p-4 text-center">
+                <p className="text-xs text-muted mb-1">🌡️ Temp Diff</p>
+                <p className={`text-2xl font-bold ${(stats.temp_diff ?? 0) >= 0 ? 'text-primary' : 'text-accent'}`}>
+                  {stats.temp_diff !== null ? `${stats.temp_diff >= 0 ? '+' : ''}${stats.temp_diff.toFixed(1)}°C` : '--'}
+                </p>
+              </div>
+              {stats.day.inside_air_temp && (
+                <div className="bg-card rounded-xl p-4 text-center">
+                  <p className="text-xs text-muted mb-1">📈 24H Inside High</p>
+                  <p className="text-2xl font-bold text-primary">
+                    {stats.day.inside_air_temp.max?.toFixed(1) ?? '--'}°C
+                  </p>
+                </div>
+              )}
+              {stats.day.inside_air_temp && (
+                <div className="bg-card rounded-xl p-4 text-center">
+                  <p className="text-xs text-muted mb-1">📉 24H Inside Low</p>
+                  <p className="text-2xl font-bold text-secondary">
+                    {stats.day.inside_air_temp.min?.toFixed(1) ?? '--'}°C
+                  </p>
+                </div>
+              )}
+            </div>
+
+            {/* 7 Day Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {stats.week.inside_air_temp && (
+                <>
+                  <div className="bg-card rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted">7D Inside High</p>
+                    <p className="text-xl font-bold text-primary">{stats.week.inside_air_temp.max?.toFixed(1) ?? '--'}°C</p>
+                  </div>
+                  <div className="bg-card rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted">7D Inside Low</p>
+                    <p className="text-xl font-bold text-secondary">{stats.week.inside_air_temp.min?.toFixed(1) ?? '--'}°C</p>
+                  </div>
+                </>
+              )}
+              {stats.week.outside_air_temp && (
+                <>
+                  <div className="bg-card rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted">7D Outside High</p>
+                    <p className="text-xl font-bold text-accent">{stats.week.outside_air_temp.max?.toFixed(1) ?? '--'}°C</p>
+                  </div>
+                  <div className="bg-card rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted">7D Outside Low</p>
+                    <p className="text-xl font-bold text-muted">{stats.week.outside_air_temp.min?.toFixed(1) ?? '--'}°C</p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            {/* 30 Day Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              {stats.month.inside_air_temp && (
+                <>
+                  <div className="bg-card rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted">30D Inside High</p>
+                    <p className="text-xl font-bold text-primary">{stats.month.inside_air_temp.max?.toFixed(1) ?? '--'}°C</p>
+                  </div>
+                  <div className="bg-card rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted">30D Inside Low</p>
+                    <p className="text-xl font-bold text-secondary">{stats.month.inside_air_temp.min?.toFixed(1) ?? '--'}°C</p>
+                  </div>
+                </>
+              )}
+              {stats.month.outside_air_temp && (
+                <>
+                  <div className="bg-card rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted">30D Outside High</p>
+                    <p className="text-xl font-bold text-accent">{stats.month.outside_air_temp.max?.toFixed(1) ?? '--'}°C</p>
+                  </div>
+                  <div className="bg-card rounded-xl p-3 text-center">
+                    <p className="text-xs text-muted">30D Outside Low</p>
+                    <p className="text-xl font-bold text-muted">{stats.month.outside_air_temp.min?.toFixed(1) ?? '--'}°C</p>
+                  </div>
+                </>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* Chart Section */}
         <div className="bg-card rounded-xl p-4">

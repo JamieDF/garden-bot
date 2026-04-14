@@ -2,15 +2,75 @@
 API endpoints for current and historical sensor readings.
 """
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from ..database import get_history, get_latest_readings
-from ..models import HistoryQuery, Reading, SensorReadings
+from ..database import get_history, get_latest_readings, get_stats
+from ..models import (
+    HistoryQuery,
+    Reading,
+    SensorReadings,
+    SensorStatsResponse,
+    PeriodStats,
+    SensorStats,
+)
 
 router = APIRouter(prefix="/api", tags=["readings"])
+
+
+def _build_period_stats(stats: dict) -> PeriodStats:
+    """Build PeriodStats from raw stats dict."""
+    result = PeriodStats()
+    if "inside_air_temp" in stats:
+        result.inside_air_temp = SensorStats(
+            min=stats["inside_air_temp"]["min"], max=stats["inside_air_temp"]["max"]
+        )
+    if "outside_air_temp" in stats:
+        result.outside_air_temp = SensorStats(
+            min=stats["outside_air_temp"]["min"], max=stats["outside_air_temp"]["max"]
+        )
+    if "inside_humidity" in stats:
+        result.inside_humidity = SensorStats(
+            min=stats["inside_humidity"]["min"], max=stats["inside_humidity"]["max"]
+        )
+    if "inside_pressure" in stats:
+        result.inside_pressure = SensorStats(
+            min=stats["inside_pressure"]["min"], max=stats["inside_pressure"]["max"]
+        )
+    return result
+
+
+@router.get("/stats", response_model=SensorStatsResponse)
+async def get_sensor_stats() -> SensorStatsResponse:
+    """Get min/max stats for 24h, 7d, and 30d periods."""
+    now = datetime.utcnow()
+
+    day_stats = get_stats(now - timedelta(days=1))
+    week_stats = get_stats(now - timedelta(days=7))
+    month_stats = get_stats(now - timedelta(days=30))
+
+    # Calculate current temp diff
+    readings = get_latest_readings()
+    inside_temp = None
+    outside_temp = None
+    for r in readings:
+        if r["sensor"] == "inside_air_temp":
+            inside_temp = r["value"]
+        elif r["sensor"] == "outside_air_temp":
+            outside_temp = r["value"]
+
+    temp_diff = None
+    if inside_temp is not None and outside_temp is not None:
+        temp_diff = round(inside_temp - outside_temp, 1)
+
+    return SensorStatsResponse(
+        day=_build_period_stats(day_stats),
+        week=_build_period_stats(week_stats),
+        month=_build_period_stats(month_stats),
+        temp_diff=temp_diff,
+    )
 
 
 @router.get("/readings", response_model=SensorReadings)

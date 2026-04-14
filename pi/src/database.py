@@ -126,3 +126,27 @@ def get_history(
         cursor = conn.execute(query, params)
         rows = cursor.fetchall()
         return [dict(row) for row in rows]
+
+
+def get_stats(from_time: datetime, to_time: Optional[datetime] = None) -> dict:
+    """Get min/max for each sensor in a time range."""
+    query = """
+        SELECT sensor, MIN(value) as min_val, MAX(value) as max_val
+        FROM readings
+        WHERE timestamp >= ?
+    """
+    params = [from_time.isoformat()]
+
+    if to_time:
+        query += " AND timestamp <= ?"
+        params.append(to_time.isoformat())
+
+    query += " GROUP BY sensor"
+
+    with get_db() as conn:
+        cursor = conn.execute(query, params)
+        rows = cursor.fetchall()
+        return {
+            row["sensor"]: {"min": row["min_val"], "max": row["max_val"]}
+            for row in rows
+        }

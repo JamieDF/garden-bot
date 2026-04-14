@@ -24,3 +24,22 @@ export interface HistoryResponse {
   unit: string;
   timestamp: string;
 }
+
+export interface SensorStats {
+  min: number | null;
+  max: number | null;
+}
+
+export interface PeriodStats {
+  inside_air_temp: SensorStats | null;
+  outside_air_temp: SensorStats | null;
+  inside_humidity: SensorStats | null;
+  inside_pressure: SensorStats | null;
+}
+
+export interface SensorStatsResponse {
+  day: PeriodStats;
+  week: PeriodStats;
+  month: PeriodStats;
+  temp_diff: number | null;
+}

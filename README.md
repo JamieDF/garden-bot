@@ -8,7 +8,7 @@ Raspberry Pi-based indoor growing monitoring and automation system.
 - DS18B20 temperature probes (inside/outside air)
 - Pi Camera 2 video streaming
 - FastAPI backend with SQLite storage
-- Vite/React dashboard with Tailwind CSS and Recharts
+- React dashboard with Tailwind CSS and Recharts
 - Multi-client MJPEG streaming
 - Chart switching (temperature, humidity, pressure)
 
@@ -16,33 +16,44 @@ Raspberry Pi-based indoor growing monitoring and automation system.
 
 | Sensor | Model | Location | Interface |
 |--------|-------|----------|-----------|
-| BME280 | BME280 | Inside tent | I2C |
+| BME280 | BME280 | Inside tent | I2C (0x76) |
 | DS18B20 | x2 | Inside/outside air | 1-Wire |
 | Camera | Pi Camera 2 | Inside tent | CSI |
 
 ## Quick Start
 
-### Pi Setup
+### Clone and Setup (fresh Pi)
 
 ```bash
-# Clone onto Pi
+git clone https://github.com/JamieDF/garden-bot.git
+cd garden-bot
+bash scripts/setup-pi.sh
+```
+
+Dashboard available at `http://<pi-ip>:8000`
+
+### Update
+
+```bash
+cd ~/garden-bot
+git pull
+bash scripts/setup-pi.sh
+```
+
+### Development (on local machine)
+
+```bash
+# Clone
 git clone https://github.com/JamieDF/garden-bot.git
 cd garden-bot
 
-# Run setup script
-bash scripts/setup-pi.sh
+# Rsync to Pi (exclude venv/node_modules)
+rsync -av --exclude='.venv' --exclude='node_modules' pi/ pi@<pi-ip>:~/garden-bot/pi/
+rsync -av --exclude='node_modules' frontend/ pi@<pi-ip>:~/garden-bot/frontend/
 
-# Start services
-sudo systemctl enable --now sensor-poller
-sudo systemctl enable --now garden-api
-```
-
-### Frontend Development
-
-```bash
-cd frontend
-npm install
-npm run dev
+# On Pi - rebuild and restart
+ssh pi@<pi-ip>
+cd ~/garden-bot && bash scripts/setup-pi.sh
 ```
 
 ## Configuration
@@ -51,22 +62,23 @@ Environment variables (prefix with `GROW_`):
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `DATABASE_URL` | `sensors.db` | SQLite database path |
-| `POLL_INTERVAL` | `30` | Seconds between readings |
-| `BME280_ADDRESS` | `0x76` | I2C address |
-| `LOG_LEVEL` | `INFO` | Logging level |
+| `GROW_DATABASE_PATH` | `/var/lib/garden-bot/readings.db` | SQLite database path |
+| `GROW_POLL_INTERVAL` | `30` | Seconds between readings |
+| `GROW_BME280_ADDRESS` | `118` (0x76) | I2C address |
+| `GROW_LOG_LEVEL` | `INFO` | Logging level |
 
 ## API
 
 | Method | Path | Description |
 |--------|------|-------------|
+| GET | `/` | Dashboard |
 | GET | `/api/readings` | Current sensor values |
 | GET | `/api/readings/latest` | Most recent reading per sensor |
 | GET | `/api/history` | Historical readings |
 | GET | `/stream.mjpg` | Live camera MJPEG stream |
 | GET | `/health` | Service health check |
 
-### History Query Parameters
+### History Query
 
 ```
 GET /api/history?sensor=inside_air_temp&from_time=2024-01-01T00:00:00&limit=5000
@@ -92,56 +104,47 @@ GET /api/history?sensor=inside_air_temp&from_time=2024-01-01T00:00:00&limit=5000
 |-------------|-------------|------|
 | `inside_air_temp` | DS18B20 inside air temp | °C |
 | `outside_air_temp` | DS18B20 outside air temp | °C |
-| `inside_temp` | BME280 inside temp | °C |
 | `inside_humidity` | BME280 humidity | % |
 | `inside_pressure` | BME280 pressure | hPa |
 
-## Database
-
-SQLite at `~/garden-bot/data/readings.db`
-
-```sql
-CREATE TABLE readings (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  timestamp TEXT NOT NULL,
-  sensor TEXT NOT NULL,
-  value REAL NOT NULL,
-  unit TEXT NOT NULL
-);
-```
-
-## Services (systemd)
-
-- `sensor-poller.service` — polls sensors every 30s, writes to DB
-- `garden-api.service` — FastAPI server
+## Services
 
 ```bash
+# View logs
+sudo journalctl -u sensor-poller -f
+sudo journalctl -u garden-api -f
+
+# Restart services
 sudo systemctl restart sensor-poller
 sudo systemctl restart garden-api
-sudo journalctl -u sensor-poller -f  # follow logs
+
+# Check status
+systemctl status sensor-poller
+systemctl status garden-api
 ```
 
-## Pi Setup Requirements
+## Database
 
-1. Enable I2C: `raspi-config` → Interface Options → I2C
-2. Enable 1-Wire: `raspi-config` → Interface Options → 1-Wire
-3. Enable camera: `raspi-config` → Interface Options → Camera
-4. Install deps: `pip install -r pi/requirements.txt`
+SQLite at `/var/lib/garden-bot/readings.db`
 
 ## Project Structure
 
 ```
-Garden_Bot/
+garden-bot/
 ├── pi/
 │   ├── src/
-│   │   ├── main.py              # FastAPI entry
-│   │   ├── config.py            # Settings
+│   │   ├── main.py              # FastAPI entry + serves frontend
+│   │   ├── config.py            # Settings from env
 │   │   ├── database.py          # SQLite ops
-│   │   ├── poller.py            # Sensor polling
+│   │   ├── poller.py            # Sensor polling daemon
 │   │   ├── sensors/             # BME280, DS18B20 drivers
 │   │   ├── camera/              # MJPEG streaming
 │   │   └── routers/             # API endpoints
-│   └── services/                # systemd units
+│   ├── services/                # systemd units
+│   └── requirements.txt
 ├── frontend/                    # Vite/React app
-└── scripts/                     # Setup scripts
+│   ├── src/
+│   └── vite.config.ts
+└── scripts/
+    └── setup-pi.sh             # Full Pi setup script
 ```
