@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
-import { SensorReadings, Reading, SensorStatsResponse } from './types';
+import { SensorReadings, Reading, SensorStatsResponse, FanState } from './types';
 
 type TimeRange = '1h' | '24h' | '7d' | '30d';
 type ChartType = 'temperature' | 'humidity' | 'pressure';
@@ -41,6 +41,9 @@ function App() {
   const [readings, setReadings] = useState<SensorReadings | null>(null);
   const [chartData, setChartData] = useState<Reading[]>([]);
   const [stats, setStats] = useState<SensorStatsResponse | null>(null);
+  const [fanState, setFanState] = useState<FanState | null>(null);
+  const [thresholdDraft, setThresholdDraft] = useState<{on: string, off: string}>({on: '20.0', off: '19.0'});
+  const fanStateInitialized = useRef(false);
   const [timeRange, setTimeRange] = useState<TimeRange>('24h');
   const [chartType, setChartType] = useState<ChartType>('temperature');
   const [error, setError] = useState<string | null>(null);
@@ -67,6 +70,49 @@ function App() {
       console.error('Failed to fetch stats:', err);
     }
   }, []);
+
+  const loadFanState = useCallback(async () => {
+    try {
+      const res = await fetch('/api/fan');
+      const data = await res.json();
+      setFanState(data);
+      // Only init threshold draft on first load, not on every poll
+      if (!fanStateInitialized.current) {
+        fanStateInitialized.current = true;
+        setThresholdDraft({on: String(data.on_threshold), off: String(data.off_threshold)});
+      }
+    } catch (err) {
+      console.error('Failed to fetch fan state:', err);
+    }
+  }, []);
+
+  const setFanMode = async (on: boolean) => {
+    try {
+      const res = await fetch('/api/fan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ on }),
+      });
+      const data = await res.json();
+      setFanState(data);
+    } catch (err) {
+      console.error('Failed to set fan state:', err);
+    }
+  };
+
+  const setAutoMode = async (enabled: boolean, on_threshold: number, off_threshold: number) => {
+    try {
+      const res = await fetch('/api/fan/auto', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ enabled, on_threshold, off_threshold }),
+      });
+      const data = await res.json();
+      setFanState(data);
+    } catch (err) {
+      console.error('Failed to set auto mode:', err);
+    }
+  };
 
   const loadChartData = useCallback(async () => {
     try {
@@ -102,17 +148,19 @@ function App() {
   useEffect(() => {
     loadReadings();
     loadStats();
+    loadFanState();
     loadChartData();
-  }, [loadReadings, loadStats, loadChartData]);
+  }, [loadReadings, loadStats, loadFanState, loadChartData]);
 
   useEffect(() => {
     const interval = setInterval(() => {
       loadReadings();
       loadStats();
+      loadFanState();
       loadChartData();
-    }, 30000);
+    }, 5000);
     return () => clearInterval(interval);
-  }, [loadReadings, loadStats, loadChartData]);
+  }, [loadReadings, loadStats, loadFanState, loadChartData]);
 
   return (
     <div className="min-h-screen bg-dark p-6">
@@ -175,6 +223,117 @@ function App() {
             </div>
           </div>
         </div>
+
+        {/* Fan Control */}
+        {fanState && (
+          <div className="bg-card rounded-xl p-4">
+            <div className="flex justify-between items-center mb-4">
+              <h2 className="text-lg font-semibold text-text">💨 Fan</h2>
+              {/* Mode Toggle */}
+              <div className="flex gap-1">
+                <button
+                  onClick={() => setAutoMode(false, fanState.on_threshold, fanState.off_threshold)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                    fanState.mode === 'manual'
+                      ? 'bg-primary text-dark'
+                      : 'bg-dark text-muted hover:text-text'
+                  }`}
+                >
+                  Manual
+                </button>
+                <button
+                  onClick={() => setAutoMode(true, fanState.on_threshold, fanState.off_threshold)}
+                  className={`px-3 py-1 rounded text-xs font-medium transition-colors ${
+                    fanState.mode === 'auto'
+                      ? 'bg-primary text-dark'
+                      : 'bg-dark text-muted hover:text-text'
+                  }`}
+                >
+                  Auto
+                </button>
+              </div>
+            </div>
+            
+            {/* Current State Indicator */}
+            <div className="flex items-center justify-center mb-4 p-3 bg-dark rounded-lg">
+              <div className={`w-4 h-4 rounded-full mr-3 ${fanState.state === 'on' ? 'bg-green-500' : 'bg-red-500/50'}`} />
+              <span className={`text-2xl font-bold ${fanState.state === 'on' ? 'text-green-400' : 'text-muted'}`}>
+                {fanState.state === 'on' ? 'FAN RUNNING' : 'FAN OFF'}
+              </span>
+              <span className="ml-3 text-xs text-muted">
+                ({fanState.mode})
+              </span>
+            </div>
+            
+            {/* Controls */}
+            {fanState.mode === 'manual' ? (
+              /* Manual Toggle Button */
+              <button
+                onClick={() => setFanMode(fanState.state !== 'on')}
+                className={`w-full py-4 rounded-lg font-bold text-lg transition-colors ${
+                  fanState.state === 'on'
+                    ? 'bg-red-600 hover:bg-red-700 text-white'
+                    : 'bg-green-600 hover:bg-green-700 text-white'
+                }`}
+              >
+                Turn {fanState.state === 'on' ? 'OFF' : 'ON'}
+              </button>
+            ) : (
+              /* Auto Mode Threshold Inputs */
+              <div className="space-y-3">
+                <p className="text-xs text-muted text-center">
+                  Auto mode: fan turns on above {fanState.on_threshold}°C, off below {fanState.off_threshold}°C
+                </p>
+                <div className="flex gap-4">
+                  <div className="flex-1">
+                    <label className="text-xs text-muted block mb-1">On above (°C)</label>
+                    <input
+                      type="number"
+                      value={thresholdDraft.on}
+                      className="w-full bg-dark rounded px-3 py-2 text-text text-center"
+                      onChange={(e) => setThresholdDraft(d => ({...d, on: e.target.value}))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const val = parseFloat(e.currentTarget.value);
+                          const offVal = parseFloat(thresholdDraft.off);
+                          if (!isNaN(val) && !isNaN(offVal)) setAutoMode(true, val, offVal);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const val = parseFloat(e.currentTarget.value);
+                        const offVal = parseFloat(thresholdDraft.off);
+                        if (!isNaN(val) && !isNaN(offVal)) setAutoMode(true, val, offVal);
+                      }}
+                    />
+                  </div>
+                  <div className="flex-1">
+                    <label className="text-xs text-muted block mb-1">Off below (°C)</label>
+                    <input
+                      type="number"
+                      value={thresholdDraft.off}
+                      className="w-full bg-dark rounded px-3 py-2 text-text text-center"
+                      onChange={(e) => setThresholdDraft(d => ({...d, off: e.target.value}))}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          const onVal = parseFloat(thresholdDraft.on);
+                          const val = parseFloat(e.currentTarget.value);
+                          if (!isNaN(onVal) && !isNaN(val)) setAutoMode(true, onVal, val);
+                          e.currentTarget.blur();
+                        }
+                      }}
+                      onBlur={(e) => {
+                        const onVal = parseFloat(thresholdDraft.on);
+                        const val = parseFloat(e.currentTarget.value);
+                        if (!isNaN(onVal) && !isNaN(val)) setAutoMode(true, onVal, val);
+                      }}
+                    />
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Stats Section */}
         {stats && (
@@ -340,7 +499,7 @@ function App() {
 
         {/* Footer */}
         <div className="text-center text-muted text-xs py-4">
-          Auto-refreshes every 30 seconds
+          Auto-refreshes every 5 seconds
         </div>
       </div>
     </div>

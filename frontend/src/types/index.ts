@@ -43,3 +43,10 @@ export interface SensorStatsResponse {
   month: PeriodStats;
   temp_diff: number | null;
 }
+
+export interface FanState {
+  state: 'on' | 'off';
+  mode: 'auto' | 'manual';
+  on_threshold: number;
+  off_threshold: number;
+}

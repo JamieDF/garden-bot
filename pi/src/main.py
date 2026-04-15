@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 
 from .config import settings
 from .database import init_db
-from .routers import readings, stream
+from .routers import readings, stream, fan
 
 # Configure logging
 logging.basicConfig(
@@ -55,6 +55,7 @@ app.add_middleware(
 # Include routers
 app.include_router(readings.router)
 app.include_router(stream.router)
+app.include_router(fan.router)
 
 
 @app.get("/")
