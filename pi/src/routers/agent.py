@@ -1,0 +1,43 @@
+"""
+Agent status, journal, and manual-wake endpoints.
+"""
+
+from typing import Optional
+
+from fastapi import APIRouter, Query
+
+from ..agent.loop import GardenAgent
+from ..config import settings
+from ..database import get_journal
+
+router = APIRouter(prefix="/api/agent", tags=["agent"])
+
+_agent = GardenAgent()
+
+
+@router.get("/status")
+async def agent_status() -> dict:
+    """Agent configuration and runtime state."""
+    return {
+        "enabled": settings.llm_enabled,
+        "model": settings.llm_model,
+        "base_url": settings.llm_base_url,
+        "wake_interval": settings.agent_wake_interval,
+        "wake_count": _agent.wake_count,
+        "last_wake": _agent.last_wake.isoformat() if _agent.last_wake else None,
+    }
+
+
+@router.get("/journal")
+async def agent_journal(
+    limit: int = Query(50, le=200),
+    kind: Optional[str] = Query(None, description="Filter by entry kind"),
+) -> list[dict]:
+    """Get journal entries, most recent first."""
+    return get_journal(limit=limit, kind=kind)
+
+
+@router.post("/wake")
+async def agent_wake() -> dict:
+    """Trigger a wake cycle manually (for dev/testing)."""
+    return await _agent.wake()

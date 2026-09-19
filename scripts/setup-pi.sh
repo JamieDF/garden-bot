@@ -134,6 +134,7 @@ echo "Step 9: Systemd services"
 echo "========================================="
 sudo cp "$APP_DIR/services/sensor-poller.service" /etc/systemd/system/
 sudo cp "$APP_DIR/services/garden-api.service" /etc/systemd/system/
+sudo cp "$APP_DIR/services/garden-agent.service" /etc/systemd/system/
 sudo systemctl daemon-reload
 echo ""
 
@@ -142,6 +143,7 @@ echo "Step 10: Starting services"
 echo "========================================="
 sudo systemctl enable --now sensor-poller
 sudo systemctl enable --now garden-api
+sudo systemctl enable --now garden-agent
 echo ""
 
 echo "========================================="
@@ -151,6 +153,7 @@ echo ""
 echo "Services:"
 echo "  sensor-poller  $(systemctl is-active sensor-poller 2>/dev/null || echo 'inactive')"
 echo "  garden-api     $(systemctl is-active garden-api 2>/dev/null || echo 'inactive')"
+echo "  garden-agent   $(systemctl is-active garden-agent 2>/dev/null || echo 'inactive')"
 echo ""
 echo "View logs:"
 echo "  journalctl -u sensor-poller -f"

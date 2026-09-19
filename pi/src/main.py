@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 
 from .config import settings
 from .database import init_db
-from .routers import readings, stream, fan
+from .routers import agent, readings, stream, fan
 
 # Configure logging
 logging.basicConfig(
@@ -56,6 +56,13 @@ app.add_middleware(
 app.include_router(readings.router)
 app.include_router(stream.router)
 app.include_router(fan.router)
+app.include_router(agent.router)
+
+
+@app.get("/health")
+async def health_check() -> dict:
+    """Health check endpoint."""
+    return {"status": "healthy", "database": str(settings.database_path)}
 
 
 @app.get("/")
@@ -76,9 +83,3 @@ async def serve_frontend(full_path: str):
     if FRONTEND_DIST.exists():
         return FileResponse(str(FRONTEND_DIST / "index.html"))
     return {"message": "Not found"}
-
-
-@app.get("/health")
-async def health_check() -> dict:
-    """Health check endpoint."""
-    return {"status": "healthy", "database": str(settings.database_path)}

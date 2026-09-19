@@ -21,6 +21,15 @@ class Settings(BaseSettings):
     host: str = "0.0.0.0"
     port: int = 8000
 
+    # Agent / LLM (any OpenAI-compatible endpoint: llama-server, Ollama, hosted)
+    llm_enabled: bool = False
+    llm_base_url: str = "http://localhost:8080/v1"
+    llm_model: str = "smollm2-135m"
+    llm_api_key: str = "none"
+    llm_timeout: float = 60.0
+    agent_wake_interval: int = 1800  # seconds between wakes
+    agent_journal_recall: int = 5  # past decisions fed back as memory
+
     class Config:
         env_prefix = "GROW_"
 

@@ -9,7 +9,10 @@ import threading
 from pathlib import Path
 from typing import Optional
 
-import RPi.GPIO as GPIO
+try:
+    import RPi.GPIO as GPIO
+except ImportError:
+    GPIO = None  # Not on a Pi (dev machine) - fan control no-ops
 
 logger = logging.getLogger(__name__)
 
@@ -29,10 +32,18 @@ DEFAULT_STATE = {
 def _ensure_gpio() -> None:
     """Lazy GPIO initialization - only sets up once."""
     global _gpio_initialized
+    if GPIO is None:
+        return
     if not _gpio_initialized:
         GPIO.setmode(GPIO.BCM)
         GPIO.setup(PIN, GPIO.OUT, initial=GPIO.HIGH)
         _gpio_initialized = True
+
+
+def _write(on: bool) -> None:
+    """Drive the relay pin (LOW = on). No-op without GPIO."""
+    if GPIO is not None:
+        GPIO.output(PIN, GPIO.LOW if on else GPIO.HIGH)
 
 
 def _load() -> dict:
@@ -68,7 +79,7 @@ def set_manual(on: bool) -> dict:
     data["mode"] = "manual"
     _save(data)
     _ensure_gpio()
-    GPIO.output(PIN, GPIO.LOW if on else GPIO.HIGH)
+    _write(on)
     logger.info(f"Manual fan {'ON' if on else 'OFF'}")
     return get()
 
@@ -107,12 +118,12 @@ def check(temp: Optional[float]) -> None:
     _ensure_gpio()
 
     if is_on and temp <= off_thr:
-        GPIO.output(PIN, GPIO.HIGH)
+        _write(False)
         data["state"] = "off"
         _save(data)
         logger.info(f"Auto OFF: {temp}°C <= {off_thr}°C")
     elif not is_on and temp >= on_thr:
-        GPIO.output(PIN, GPIO.LOW)
+        _write(True)
         data["state"] = "on"
         _save(data)
         logger.info(f"Auto ON: {temp}°C >= {on_thr}°C")
@@ -122,9 +133,10 @@ def init() -> None:
     """Initialize GPIO and restore saved state."""
     _ensure_gpio()
     data = _load()
-    GPIO.output(PIN, GPIO.LOW if data["state"] == "on" else GPIO.HIGH)
+    _write(data["state"] == "on")
     logger.info(f"Fan init: state={data['state']}, mode={data['mode']}")
 
 
 def cleanup() -> None:
-    GPIO.cleanup(PIN)
+    if GPIO is not None:
+        GPIO.cleanup(PIN)

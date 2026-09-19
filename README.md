@@ -11,6 +11,7 @@ Raspberry Pi-based indoor growing monitoring and automation system.
 - React dashboard with Tailwind CSS and Recharts
 - Multi-client MJPEG streaming
 - Chart switching (temperature, humidity, pressure)
+- Agent wake loop with provider-agnostic LLM (see `docs/agent-plan.md`)
 
 ## Hardware
 
@@ -66,6 +67,14 @@ Environment variables (prefix with `GROW_`):
 | `GROW_POLL_INTERVAL` | `30` | Seconds between readings |
 | `GROW_BME280_ADDRESS` | `118` (0x76) | I2C address |
 | `GROW_LOG_LEVEL` | `INFO` | Logging level |
+| `GROW_LLM_ENABLED` | `false` | Enable the agent wake loop |
+| `GROW_LLM_BASE_URL` | `http://localhost:8080/v1` | Any OpenAI-compatible endpoint |
+| `GROW_LLM_MODEL` | `smollm2-135m` | Model name to request |
+| `GROW_LLM_API_KEY` | `none` | Bearer token if provider needs one |
+| `GROW_AGENT_WAKE_INTERVAL` | `1800` | Seconds between agent wakes |
+
+The agent works with llama.cpp `llama-server`, Ollama, or hosted APIs
+(tested with DeepSeek). Point `GROW_LLM_BASE_URL` at any of them.
 
 ## API
 
@@ -75,6 +84,13 @@ Environment variables (prefix with `GROW_`):
 | GET | `/api/readings` | Current sensor values |
 | GET | `/api/readings/latest` | Most recent reading per sensor |
 | GET | `/api/history` | Historical readings |
+| GET | `/api/stats` | Min/max stats for 24h, 7d, 30d |
+| GET | `/api/fan` | Fan state |
+| POST | `/api/fan` | Manual fan on/off |
+| PUT | `/api/fan/auto` | Auto mode + thresholds |
+| GET | `/api/agent/status` | Agent config and runtime state |
+| GET | `/api/agent/journal` | Agent journal entries |
+| POST | `/api/agent/wake` | Trigger an agent wake manually |
 | GET | `/stream.mjpg` | Live camera MJPEG stream |
 | GET | `/health` | Service health check |
 
@@ -113,14 +129,17 @@ GET /api/history?sensor=inside_air_temp&from_time=2024-01-01T00:00:00&limit=5000
 # View logs
 sudo journalctl -u sensor-poller -f
 sudo journalctl -u garden-api -f
+sudo journalctl -u garden-agent -f
 
 # Restart services
 sudo systemctl restart sensor-poller
 sudo systemctl restart garden-api
+sudo systemctl restart garden-agent
 
 # Check status
 systemctl status sensor-poller
 systemctl status garden-api
+systemctl status garden-agent
 ```
 
 ## Database
@@ -137,6 +156,7 @@ garden-bot/
 │   │   ├── config.py            # Settings from env
 │   │   ├── database.py          # SQLite ops
 │   │   ├── poller.py            # Sensor polling daemon
+│   │   ├── agent/               # LLM agent wake loop
 │   │   ├── sensors/             # BME280, DS18B20 drivers
 │   │   ├── camera/              # MJPEG streaming
 │   │   └── routers/             # API endpoints
@@ -145,6 +165,9 @@ garden-bot/
 ├── frontend/                    # Vite/React app
 │   ├── src/
 │   └── vite.config.ts
+├── docs/
+│   ├── wiring.md               # GPIO wiring reference
+│   └── agent-plan.md           # Agent design + phases
 └── scripts/
     └── setup-pi.sh             # Full Pi setup script
 ```

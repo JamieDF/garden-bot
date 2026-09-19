@@ -1,3 +1,4 @@
+import json
 import sqlite3
 from contextlib import contextmanager
 from datetime import datetime
@@ -28,6 +29,18 @@ def init_db() -> None:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_readings_sensor
             ON readings(sensor)
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS agent_journal (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT NOT NULL,
+                kind TEXT NOT NULL,
+                data TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_journal_timestamp
+            ON agent_journal(timestamp)
         """)
         conn.commit()
 
@@ -150,3 +163,33 @@ def get_stats(from_time: datetime, to_time: Optional[datetime] = None) -> dict:
             row["sensor"]: {"min": row["min_val"], "max": row["max_val"]}
             for row in rows
         }
+
+
+def insert_journal_entry(kind: str, data: dict) -> int:
+    """Append an entry to the agent journal. Returns its ID."""
+    with get_db() as conn:
+        cursor = conn.execute(
+            """
+            INSERT INTO agent_journal (timestamp, kind, data)
+            VALUES (?, ?, ?)
+            """,
+            (datetime.utcnow().isoformat(), kind, json.dumps(data)),
+        )
+        conn.commit()
+        return cursor.lastrowid
+
+
+def get_journal(limit: int = 50, kind: Optional[str] = None) -> list[dict]:
+    """Get journal entries, most recent first. Optionally filter by kind."""
+    query = "SELECT id, timestamp, kind, data FROM agent_journal"
+    params: list = []
+    if kind:
+        query += " WHERE kind = ?"
+        params.append(kind)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+
+    with get_db() as conn:
+        cursor = conn.execute(query, params)
+        rows = cursor.fetchall()
+        return [{**dict(row), "data": json.loads(row["data"])} for row in rows]

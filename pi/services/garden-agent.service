@@ -1,0 +1,16 @@
+# Garden Bot - Agent Service (LLM wake loop)
+[Unit]
+Description=Garden Bot Agent
+After=network.target garden-api.service
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/home/pi/garden-bot/pi
+ExecStart=/home/pi/garden-bot/.venv/bin/python -m src.agent
+Restart=on-failure
+RestartSec=10
+EnvironmentFile=/home/pi/garden-bot/.env
+
+[Install]
+WantedBy=multi-user.target
