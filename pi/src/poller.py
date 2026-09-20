@@ -1,5 +1,6 @@
 """
-Sensor polling service - reads sensors, writes to DB, controls fan.
+Sensor polling service - reads configured sensor devices, writes to DB,
+drives relay auto-control on watched sensors.
 """
 
 import logging
@@ -9,8 +10,7 @@ import time
 from .config import settings
 from .database import init_db, insert_readings_batch
 from .models import ReadingCreate
-from .sensors import BME280Reader, create_probe_readers
-from .sensors import fan
+from . import registry
 
 logging.basicConfig(
     level=logging.INFO,
@@ -22,80 +22,62 @@ logger = logging.getLogger(__name__)
 class SensorPoller:
     def __init__(self):
         self.running = True
-        self.sensors = {}
         self._first_reading = True
         signal.signal(signal.SIGTERM, self._signal_handler)
         signal.signal(signal.SIGINT, self._signal_handler)
 
     def _signal_handler(self, signum, frame):
         logger.info(f"Received signal {signum}, shutting down...")
-        fan.cleanup()
+        for d in registry.actuator_devices():
+            registry.controller_for(d).cleanup()
         self.running = False
 
-    def _init_sensors(self):
-        logger.info("Initializing sensors...")
-        self.sensors["inside"] = BME280Reader(bus=1, address=settings.bme280_address)
-        self.sensors["ds18b20"] = create_probe_readers()
-        logger.info(f"Initialized sensors: {list(self.sensors.keys())}")
+    def _init_actuators(self):
+        for d in registry.actuator_devices():
+            try:
+                registry.controller_for(d).init()
+            except Exception as e:
+                logger.error(f"Error init actuator {d['name']}: {e}")
 
     def _poll_all(self):
         readings = []
-        inside_air_temp = None
+        values = {}  # sensor key -> value, for actuator auto-control
 
-        # BME280
-        try:
-            data = self.sensors["inside"].read()
-            if data["temperature"] is not None:
-                readings.append(
-                    ReadingCreate(
-                        sensor="inside_temp", value=data["temperature"], unit="°C"
-                    )
-                )
-            if data["humidity"] is not None:
-                readings.append(
-                    ReadingCreate(
-                        sensor="inside_humidity",
-                        value=min(data["humidity"], 100.0),
-                        unit="%",
-                    )
-                )
-            if data["pressure"] is not None:
-                readings.append(
-                    ReadingCreate(
-                        sensor="inside_pressure", value=data["pressure"], unit="hPa"
-                    )
-                )
-        except Exception as e:
-            logger.error(f"Error reading BME280: {e}")
-
-        # DS18B20 probes
-        ds18b20 = self.sensors.get("ds18b20", {})
-        for probe_name, reader in ds18b20.items():
+        for device in registry.sensor_devices():
+            reader = registry.reader_for(device)
+            if not reader:
+                continue
             try:
                 data = reader.read()
-                if data["temperature"] is not None:
-                    readings.append(
-                        ReadingCreate(
-                            sensor=f"{probe_name}_temp",
-                            value=data["temperature"],
-                            unit="°C",
-                        )
-                    )
-                    if probe_name == "inside_air":
-                        inside_air_temp = data["temperature"]
             except Exception as e:
-                logger.error(f"Error reading {probe_name}: {e}")
+                logger.error(f"Error reading {device['name']}: {e}")
+                continue
+            for metric, value in data.items():
+                if value is None:
+                    continue
+                if metric == "humidity":
+                    value = min(value, 100.0)
+                key = f"{device['name']}.{metric}"
+                unit = registry.METRIC_UNITS.get(metric, "")
+                readings.append(
+                    ReadingCreate(sensor=key, value=value, unit=unit)
+                )
+                values[key] = value
 
-        # Fan auto control
-        fan.check(inside_air_temp)
+        # Relay auto-control on watched sensors
+        for device in registry.actuator_devices():
+            try:
+                ctrl = registry.controller_for(device)
+                ctrl.check(values.get(ctrl.watch))
+            except Exception as e:
+                logger.error(f"Error checking {device['name']}: {e}")
 
         return readings
 
     def run(self):
         logger.info("Sensor poller starting...")
         init_db()
-        self._init_sensors()
-        fan.init()
+        self._init_actuators()
         logger.info(f"Polling every {settings.poll_interval} seconds")
 
         while self.running:

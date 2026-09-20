@@ -13,7 +13,7 @@ from fastapi.responses import FileResponse
 
 from .config import settings
 from .database import init_db
-from .routers import agent, readings, stream, fan
+from .routers import agent, dashboard, devices, readings, stream, fan
 
 # Configure logging
 logging.basicConfig(
@@ -57,6 +57,8 @@ app.include_router(readings.router)
 app.include_router(stream.router)
 app.include_router(fan.router)
 app.include_router(agent.router)
+app.include_router(devices.router)
+app.include_router(dashboard.router)
 
 
 @app.get("/health")

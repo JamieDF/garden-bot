@@ -1,0 +1,476 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>garden-bot — dashboard variants</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=IBM+Plex+Mono:ital,wght@0,400;0,500;1,400&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; margin: 0; }
+  body { font-family: 'Space Grotesk', system-ui, sans-serif; }
+  #bar { position: sticky; top: 0; z-index: 10; display: flex; flex-wrap: wrap; gap: 14px;
+         align-items: center; padding: 10px 16px; border-bottom: 1px solid #4443; backdrop-filter: blur(6px); }
+  #bar .title { font-weight: 700; font-size: 15px; margin-right: auto; }
+  #bar label { font-size: 11px; letter-spacing: .06em; text-transform: uppercase; display: flex; gap: 6px; align-items: center; }
+  #bar select { font: inherit; font-size: 13px; padding: 4px 8px; }
+  .variant { padding: 26px 16px 8px; }
+  .vlabel { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+  .vlabel .id { font-family: 'IBM Plex Mono', monospace; font-size: 11px; padding: 2px 7px; border-radius: 6px; }
+  .vlabel .name { font-size: 17px; font-weight: 700; }
+  .why { font-size: 13px; max-width: 70ch; line-height: 1.45; margin-bottom: 14px; }
+  .stage { border-radius: 10px; overflow-x: auto; overflow-y: hidden; }
+  .frame { border-radius: 10px; }
+  button { font: inherit; cursor: pointer; }
+</style>
+</head>
+<body>
+<div id="bar">
+  <span class="title">garden-bot · dashboard variants</span>
+  <label>mode <select id="dMode"></select></label>
+  <label>width <select id="dWidth"></select></label>
+</div>
+<div id="app"></div>
+
+<script>
+/* ---------- contrast helpers (text colour is computed, never authored) ---------- */
+function _srgb(c){ c/=255; return c<=0.03928 ? c/12.92 : Math.pow((c+0.055)/1.055,2.4); }
+function _rgb(hex){ hex=String(hex).trim();
+  const m=hex.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i); if(!m) return null;
+  let s=m[1]; if(s.length===3) s=s.split("").map(c=>c+c).join("");
+  return [parseInt(s.slice(0,2),16),parseInt(s.slice(2,4),16),parseInt(s.slice(4,6),16)]; }
+function lum(hex){ const c=_rgb(hex); if(!c) return 1;
+  return 0.2126*_srgb(c[0])+0.7152*_srgb(c[1])+0.0722*_srgb(c[2]); }
+function ratio(a,b){ const la=lum(a), lb=lum(b);
+  return (Math.max(la,lb)+0.05)/(Math.min(la,lb)+0.05); }
+function _mix(a,b,w){ return a.map((v,i)=>v+(b[i]-v)*w); }
+function _hex(c){ return "#"+c.map(v=>Math.max(0,Math.min(255,Math.round(v)))
+  .toString(16).padStart(2,"0")).join(""); }
+function bestFg(bg,cands){ let best=cands[0],score=-1;
+  for(const c of cands){ const s=ratio(bg,c); if(s>score){score=s;best=c;} } return best; }
+function onFill(t,bg){ return bestFg(bg,[t.outline,t.ink,"#ffffff","#12100d"]); }
+function shadeOn(role,ground,target){ target=target||4.7;
+  const b=_rgb(role),g=_rgb(ground); if(!b||!g) return role;
+  if(ratio(role,ground)>=target) return role;
+  const toward=lum(ground)>0.4?[0,0,0]:[255,255,255];
+  let best=role,bestR=ratio(role,ground);
+  for(let w=0.02;w<=1.0001;w+=0.02){ const cand=_hex(_mix(b,toward,w));
+    const rr=ratio(cand,ground); if(rr>bestR){bestR=rr;best=cand;}
+    if(rr>=target) return cand; }
+  return best; }
+function quiet(t,bg){ const fg=onFill(t,bg),f=_rgb(fg),g=_rgb(bg);
+  if(!f||!g) return fg; let best=fg;
+  for(let w=0.05;w<=0.6;w+=0.05){ const cand=_hex(_mix(f,g,w));
+    if(ratio(cand,bg)>=4.7) best=cand; else break; } return best; }
+
+/* ---------- tokens ---------- */
+const PALETTES = {
+  dark: { bg:"#0b0f14", surf:"#141b24", surf2:"#1b2531", ink:"#e8eef4",
+          line:"#263242", outline:"#f0f6fc",
+          accent:"#64ffda", accentSoft:"#1c3b34",
+          moss:"#7ee787", warn:"#f0b72f", danger:"#ff7b72", sky:"#79b8ff" },
+  light:{ bg:"#f2f5f0", surf:"#ffffff", surf2:"#e9efe7", ink:"#1b241f",
+          line:"#d8e1d6", outline:"#10160f",
+          accent:"#0d7a5f", accentSoft:"#d9efe5",
+          moss:"#1e7d3c", warn:"#8a5d00", danger:"#b5362c", sky:"#1d5fa8" },
+};
+const THEME = { r:"14px", rS:"9px", bw:"1px", sans:"'Space Grotesk',system-ui,sans-serif",
+                mono:"'IBM Plex Mono',ui-monospace,monospace",
+                shadow:"0 1px 0 rgba(0,0,0,.18), 0 8px 24px -18px rgba(0,0,0,.5)" };
+
+/* ---------- all placeholder data lives here ---------- */
+const D = {
+  updated: "14:32",
+  inside: 24.3, outside: 15.2, humidity: 61.4, pressure: 1013.2, diff: "+9.1",
+  hi24: 27.8, lo24: 18.9, hi7: 28.4, lo7: 16.2, hi30: 29.1, lo30: 14.8,
+  fan: { state:"on", mode:"auto", on:20, off:19 },
+  mood: "hopeful",
+  speak: "Sensors are quiet, but I dream of raindrops on my leaves.",
+  lastWake: "14:32", nextWake: "~28m",
+  weather: "Tomorrow: rain, 12°C, 80% precip",   // ‡ phase 1 (Open-Meteo)
+  journal: [
+    { t:"14:32", mood:"hopeful", text:D_speak(), chip:null },
+    { t:"14:02", mood:"toasty",  text:"Warm in here — 24.3° and climbing. Fan earned its keep.", chip:"fan on · auto" },
+    { t:"13:32", mood:"content", text:"All readings nominal. A good day to be a plant.", chip:null },
+    { t:"13:02", mood:"alert",   text:"Humidity creeping past 60%. Watching it like a very small hawk.", chip:"hum 61%" },
+    { t:"12:32", mood:"sleepy",  text:"Nothing to report. Photosynthesis happening, probably.", chip:null },
+  ],
+  chart: [19.1,18.9,19.4,20.8,22.1,23.6,24.9,26.4,27.8,27.2,26.1,25.0,24.3,23.8,23.1,22.4,21.8,21.2,20.6,20.1,19.8,19.5,19.3,19.1],
+  chartOut: [14.8,14.9,15.1,15.4,15.8,16.2,16.6,16.9,17.1,16.8,16.3,15.9,15.5,15.2,14.9,14.6,14.3,14.1,13.9,13.8,13.7,13.6,13.5,13.4],
+  dashMetrics: [
+    {name:"inside air",     val:"24.3 °C",    on:true},
+    {name:"outside air",    val:"15.2 °C",    on:true},
+    {name:"humidity",       val:"61.4 %",     on:true},
+    {name:"pressure",       val:"1013.2 hPa", on:true},
+    {name:"bed a moisture", val:"34 %",       on:false},
+    {name:"bed b moisture", val:"stale 2h",   on:false},
+    {name:"temp diff",      val:"+9.1 °C",    on:false},
+    {name:"leaf temp",      val:"—",          on:false},
+  ],
+  gridCols: 4,
+  devices: [
+    {icon:"🌡️", name:"inside climate", type:"bme280",   params:"i2c1 · addr 0x76",     loc:"inside",    status:"ok",    val:"24.3°C · 61%"},
+    {icon:"🌡️", name:"inside air",    type:"ds18b20",  params:"w1 · 28-aa01",          loc:"inside",    status:"ok",    val:"24.1°C"},
+    {icon:"🌡️", name:"outside air",   type:"ds18b20",  params:"w1 · 28-bb02",          loc:"outside",   status:"ok",    val:"15.2°C"},
+    {icon:"💧", name:"bed a moisture",type:"moisture",  params:"ads1115 · ch0",         loc:"bed a",     status:"ok",    val:"34%"},
+    {icon:"💧", name:"bed b moisture",type:"moisture",  params:"ads1115 · ch1",         loc:"bed b",     status:"stale", val:"stale 2h"},
+    {icon:"🌀", name:"circulation",   type:"fan",       params:"relay · gpio17 · lo-on", loc:"inside",    status:"ok",    val:"on · auto"},
+    {icon:"🚿", name:"bed a pump",    type:"pump",      params:"relay · gpio27",        loc:"reservoir", status:"off",   val:"idle"},
+    {icon:"📹", name:"tent cam",      type:"camera",    params:"rpicam · 640×480",      loc:"inside",    status:"ok",    val:"live"},
+  ],
+};
+function D_speak(){ return "Sensors are quiet, but I dream of raindrops on my leaves."; }
+
+/* ---------- component helpers ---------- */
+function tokens(mode,w){ return Object.assign({}, PALETTES[mode], THEME, {mode, w}); }
+const pc = t => `background:${t.surf};border:${t.bw} solid ${t.line};border-radius:${t.r};box-shadow:${t.shadow};`;
+const mutT = t => quiet(t,t.surf);
+const mutB = t => quiet(t,t.bg);
+function stat(t,label,value,unit,col){
+  const c = shadeOn(col,t.surf);
+  return `<div style="${pc(t)}padding:12px 14px;min-width:0">
+    <div style="font-size:11px;color:${mutT(t)};letter-spacing:.04em;text-transform:uppercase">${label}</div>
+    <div style="font-family:${t.mono};font-size:${t.w<600?22:26}px;font-weight:500;color:${c};white-space:nowrap">
+      ${value}<span style="font-size:13px;color:${mutT(t)}"> ${unit}</span></div></div>`;
+}
+function chip(t,text,col){
+  const bg = col||t.surf2, fg = col?onFill(t,col):shadeOn(t.ink,bg);
+  return `<span style="display:inline-flex;align-items:center;min-height:24px;padding:0 10px;
+    border-radius:999px;background:${bg};color:${fg};font-size:11px;font-weight:500">${text}</span>`;
+}
+function btn(t,text,fill){
+  const bg = fill?t.accent:t.surf2, fg = fill?onFill(t,bg):shadeOn(t.ink,bg);
+  return `<button style="min-height:44px;padding:0 16px;border-radius:${t.rS};border:${t.bw} solid ${t.line};
+    background:${bg};color:${fg};font-weight:600;font-size:13px">${text}</button>`;
+}
+function speech(t,text){
+  const fg = onFill(t,t.accentSoft);
+  return `<div style="position:relative;background:${t.accentSoft};border-radius:${t.r};
+    padding:16px 18px;font-family:${t.mono};font-size:${t.w<600?15:17}px;line-height:1.5;color:${fg}">
+    “${text}”
+    <div style="position:absolute;left:34px;bottom:-9px;width:18px;height:18px;background:${t.accentSoft};
+      transform:rotate(45deg)"></div></div>`;
+}
+function jItem(t,e){
+  const mcol = {alert:t.warn,toasty:t.sky,hopeful:t.accent,content:t.moss,sleepy:mutT(t)}[e.mood]||mutT(t);
+  return `<div style="display:flex;gap:12px;padding:12px 0;border-bottom:1px solid ${t.line}">
+    <div style="font-family:${t.mono};font-size:12px;color:${mutT(t)};padding-top:2px;min-width:44px">${e.t}</div>
+    <div style="min-width:0;flex:1">
+      <div style="display:flex;gap:8px;align-items:center;margin-bottom:4px">
+        <span style="font-family:${t.mono};font-size:11px;color:${mcol}">${e.mood}</span>
+        ${e.chip?chip(t,e.chip):""}
+      </div>
+      <div style="font-family:${t.mono};font-size:13.5px;line-height:1.5;color:${shadeOn(t.ink,t.surf)}">${e.text}</div>
+    </div></div>`;
+}
+function chartMock(t,h,dual){
+  h = h||120;
+  const w=560, s1=D.chart, s2=D.chartOut;
+  const all = dual ? s1.concat(s2) : s1;
+  const min=Math.min(...all), max=Math.max(...all);
+  const X=(i,n)=>8+i*(w-16)/(n-1), Y=v=>h-16-(v-min)*(h-34)/(max-min);
+  const line=s=>s.map((v,i)=>`${X(i,s.length).toFixed(1)},${Y(v).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;display:block">
+    <polyline points="${line(s1)}" fill="none" stroke="${t.accent}" stroke-width="2"/>
+    ${dual?`<polyline points="${line(s2)}" fill="none" stroke="${t.sky}" stroke-width="2" stroke-dasharray="4 3"/>`:""}
+    <text x="8" y="13" font-size="10" fill="${mutT(t)}" font-family="${t.mono}">${max.toFixed(1)}°</text>
+    <text x="8" y="${h-4}" font-size="10" fill="${mutT(t)}" font-family="${t.mono}">${min.toFixed(1)}°</text>
+    ${dual?`<text x="${w-8}" y="13" text-anchor="end" font-size="10" fill="${t.accent}" font-family="${t.mono}">— inside</text>
+    <text x="${w-8}" y="26" text-anchor="end" font-size="10" fill="${t.sky}" font-family="${t.mono}">- - outside</text>`:""}
+    <text x="${w-8}" y="${h-4}" text-anchor="end" font-size="10" fill="${mutT(t)}" font-family="${t.mono}">24h</text></svg>`;
+}
+function videoBox(t,h){
+  const ht = h==="fill" ? "height:100%;min-height:120px" : `height:${h}px`;
+  return `<div style="background:#000;border-radius:${t.rS};${ht};display:flex;
+    flex-direction:column;align-items:center;justify-content:center;gap:6px">
+    <span style="font-size:20px">📹</span>
+    <span style="font-family:${t.mono};font-size:11px;color:#8b98a5">live feed · 640×480 mjpeg</span></div>`;
+}
+function fanRow(t){
+  const on = D.fan.state==="on", sc = on?t.moss:t.danger;
+  return `<div style="display:flex;align-items:center;gap:10px">
+    <span style="width:10px;height:10px;border-radius:50%;background:${sc}"></span>
+    <span style="font-family:${t.mono};font-size:13px;color:${shadeOn(t.ink,t.surf)}">
+      fan ${D.fan.state.toUpperCase()} · ${D.fan.mode}</span>
+    <span style="margin-left:auto">${btn(t,on?"Turn off":"Turn on",false)}</span></div>`;
+}
+
+function nav(t,active){
+  const item = (label,on)=>`<span style="display:inline-flex;align-items:center;min-height:36px;
+    padding:0 14px;border-radius:${t.rS};font-size:13px;font-weight:${on?700:500};
+    background:${on?t.accentSoft:"transparent"};color:${on?onFill(t,t.accentSoft):mutT(t)}">${label}</span>`;
+  return `<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+    <span style="font-weight:700;font-size:16px;color:${shadeOn(t.ink,t.bg)}">🌱 garden bot</span>
+    <span style="margin-left:10px;display:flex;gap:4px">${item("dashboard",active==="dash")}${item("devices",active==="dev")}${item("ask",active==="ask")}</span>
+    <span style="margin-left:auto;font-family:${t.mono};font-size:11px;color:${mutB(t)}">updated ${D.updated}</span></div>`;
+}
+
+/* ---------- variant 1: hybrid (bot hero + mission data) ---------- */
+function vHybrid(t){
+  const hero = `<div style="${pc(t)}padding:16px 18px;display:flex;gap:14px;align-items:flex-start">
+    <div style="width:48px;height:48px;border-radius:50%;background:${t.accentSoft};display:flex;
+      align-items:center;justify-content:center;font-size:24px;flex:none">🌱</div>
+    <div style="min-width:0;flex:1">
+      <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:10px">
+        <span style="font-weight:700;font-size:16px;color:${shadeOn(t.ink,t.surf)}">Garden Bot</span>
+        ${chip(t,D.mood,t.surf2)}
+        <span style="font-family:${t.mono};font-size:11px;color:${mutT(t)}">
+          awake · last ${D.lastWake} · next ${D.nextWake}</span>
+        <span style="margin-left:auto;display:flex;gap:8px;align-items:center">
+          ${btn(t,"Wake now",true)}
+          <span style="font-family:${t.mono};font-size:11px;color:${mutT(t)}">▾ musings + ask</span>
+        </span>
+      </div>
+      ${speech(t,D.speak)}
+      <div style="margin:14px 0 4px;border-top:1px solid ${t.line};padding-top:6px">
+        ${D.journal.slice(0,3).map(e=>jItem(t,e)).join("")}
+      </div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <div style="flex:1;background:${t.surf2};border:${t.bw} solid ${t.line};border-radius:${t.rS};
+          padding:10px 12px;font-family:${t.mono};font-size:13px;color:${mutT(t)};min-height:42px;
+          display:flex;align-items:center">ask it anything…</div>
+        ${btn(t,"Ask",true)}</div>
+    </div></div>`;
+  const stats = `<div>
+    <div style="display:flex;align-items:center;margin-bottom:8px">
+      <span style="font-size:11px;color:${mutB(t)};letter-spacing:.04em;text-transform:uppercase">Metrics</span>
+      <span style="margin-left:auto;font-family:${t.mono};font-size:11px;color:${mutB(t)}">✏️ edit layout</span>
+    </div>
+    <div style="display:grid;grid-template-columns:repeat(${t.w<560?2:4},1fr);gap:10px">
+    ${stat(t,"inside air",D.inside,"°C",t.accent)}${stat(t,"outside air",D.outside,"°C",t.sky)}
+    ${stat(t,"humidity",D.humidity,"%",t.moss)}${stat(t,"pressure",D.pressure,"hPa",mutT(t))}</div></div>`;
+  const pill = (txt,on)=>`<span style="display:inline-flex;align-items:center;min-height:32px;
+    padding:0 12px;border-radius:999px;font-size:12px;font-weight:${on?700:500};
+    background:${on?t.accent:t.surf2};color:${on?onFill(t,t.accent):shadeOn(t.ink,t.surf2)}">${txt}</span>`;
+  const history = `<div style="${pc(t)}padding:14px 16px">
+    <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:10px">
+      ${["temperature","humidity","pressure","‡ moisture"].map((m,i)=>pill(m,i===0)).join("")}
+      <span style="margin-left:auto;display:flex;gap:6px">
+        ${["1H","24H","7D","30D"].map((r,i)=>pill(r,i===1)).join("")}</span>
+    </div>
+    ${chartMock(t,170,true)}
+    <div style="display:flex;gap:14px;flex-wrap:wrap;margin-top:8px;font-family:${t.mono};
+      font-size:11px;color:${mutT(t)}">
+      <span>24h ${D.lo24}–${D.hi24}°</span><span>7d ${D.lo7}–${D.hi7}°</span>
+      <span>30d ${D.lo30}–${D.hi30}°</span>
+      <span style="margin-left:auto;color:${shadeOn(t.accent,t.surf)}">diff ${D.diff}°C</span></div></div>`;
+  const feed = `<div style="${pc(t)}padding:6px 16px 4px">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0">
+      <span style="font-size:11px;color:${mutT(t)};letter-spacing:.04em;text-transform:uppercase">Journal</span>
+      <span style="font-family:${t.mono};font-size:11px;color:${mutT(t)}">agent · every wake</span></div>
+    ${D.journal.map(e=>jItem(t,e)).join("")}</div>`;
+  const cam = `<div style="height:100%">${videoBox(t,"fill")}</div>`;
+  const fan = `<div style="${pc(t)}padding:14px 16px;display:flex;flex-direction:column;gap:10px;height:100%">
+    <div style="font-weight:600;font-size:14px;color:${shadeOn(t.ink,t.surf)}">Fan</div>
+    ${fanRow(t)}
+    <div style="font-family:${t.mono};font-size:11.5px;color:${mutT(t)}">
+      auto: on ≥ ${D.fan.on}° · off ≤ ${D.fan.off}°</div>
+    <div style="margin-top:auto">${chip(t,"‡ "+D.weather)}</div></div>`;
+  const body = t.w>=920
+    ? `<div style="display:grid;grid-template-columns:repeat(12,1fr);gap:14px;align-items:stretch">
+        <div style="grid-column:span 8">${hero}</div>
+        <div style="grid-column:span 4">${cam}</div>
+        <div style="grid-column:span 12">${stats}</div>
+        <div style="grid-column:span 8">${history}</div>
+        <div style="grid-column:span 4">${fan}</div>
+        <div style="grid-column:span 12">${feed}</div></div>`
+    : `<div style="display:flex;flex-direction:column;gap:14px">
+        ${hero}${cam}${stats}${history}${fan}${feed}</div>`;
+  return nav(t,"dash") + body;
+}
+
+/* ---------- variant 2: devices (modular hardware config) ---------- */
+function devRow(t, d){
+  const sc = {ok:t.moss, stale:t.warn, error:t.danger, off:mutT(t)}[d.status]||mutT(t);
+  const wide = t.w>=640;
+  return `<div style="display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid ${t.line}">
+    <span style="font-size:20px;width:28px;text-align:center">${d.icon}</span>
+    <div style="min-width:0;flex:1">
+      <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+        <span style="font-weight:600;font-size:14px;color:${shadeOn(t.ink,t.surf)}">${d.name}</span>
+        ${chip(t,d.loc)}<span style="font-family:${t.mono};font-size:11px;color:${mutT(t)}">${d.type}</span>
+      </div>
+      <div style="font-family:${t.mono};font-size:11.5px;color:${mutT(t)};margin-top:2px">${d.params}</div>
+    </div>
+    ${wide?`<span style="font-family:${t.mono};font-size:12px;color:${sc};min-width:88px;text-align:right">${d.val}</span>`:""}
+    <span style="width:9px;height:9px;border-radius:50%;background:${sc};flex:none"></span>
+    ${btn(t,"Edit",false)}</div>`;
+}
+function field(t,label,value){
+  return `<div style="min-width:140px;flex:1">
+    <div style="font-size:11px;color:${mutT(t)};text-transform:uppercase;letter-spacing:.04em;margin-bottom:4px">${label}</div>
+    <div style="background:${t.surf2};border:${t.bw} solid ${t.line};border-radius:${t.rS};
+      padding:10px 12px;font-family:${t.mono};font-size:13px;color:${shadeOn(t.ink,t.surf2)};min-height:42px">${value}</div></div>`;
+}
+function vDevices(t){
+  const rows = D.devices.map(d=>devRow(t,d)).join("");
+  const edit = `<div style="${pc(t)}padding:16px;border-color:${t.accent}">
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+      <span style="font-weight:700;font-size:14px;color:${shadeOn(t.ink,t.surf)}">edit: circulation</span>
+      ${chip(t,"fan · relay")}</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap">
+      ${field(t,"name","circulation")}
+      ${field(t,"location","inside")}
+      ${field(t,"driver","relay (active-low)")}
+      ${field(t,"gpio pin","17")}
+      ${field(t,"auto on ≥","20.0 °C")}
+      ${field(t,"auto off ≤","19.0 °C")}
+      ${field(t,"watched sensor","inside air")}
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px">${btn(t,"Save",true)}${btn(t,"Cancel",false)}${btn(t,"Test output",false)}</div></div>`;
+  return nav(t,"dev") + `<div style="max-width:${t.w<700?t.w:760}px;margin:0 auto;display:flex;flex-direction:column;gap:14px">
+    <div style="display:flex;align-items:center;gap:10px">
+      <span style="font-weight:700;font-size:18px;color:${shadeOn(t.ink,t.bg)}">Devices</span>
+      ${chip(t,D.devices.length+" configured")}
+      <span style="margin-left:auto">${btn(t,"+ Add device",true)}</span>
+    </div>
+    <div style="${pc(t)}padding:4px 16px">${rows}</div>
+    ${edit}
+    <div style="font-family:${t.mono};font-size:11.5px;color:${mutB(t)};line-height:1.5">
+      driver registry: bme280 · ds18b20 · moisture(ads1115) · relay(fan/pump) · camera(rpicam)<br>
+      ‡ pumps/relays get safety fields: max run time, cooldown, watched sensor</div></div>`;
+}
+
+/* ---------- variant 3: ask the bot ---------- */
+function vAsk(t){
+  const bub = (me,txt)=>`<div style="display:flex;${me?"justify-content:flex-end":""};margin-bottom:10px">
+    <div style="max-width:78%;background:${me?t.accent:t.surf2};border-radius:${t.r};
+      padding:10px 14px;font-family:${t.mono};font-size:13.5px;line-height:1.5;
+      color:${me?onFill(t,t.accent):shadeOn(t.ink,t.surf2)}">${txt}</div></div>`;
+  const msgs = [
+    [1,"how's it going in there?"],
+    [0,"Warm — 24.3°C and steady. Bed A is at 34% moisture, bed B's probe has been quiet for 2h though. Suspicious."],
+    [1,"should i water bed a?"],
+    [0,"I'd hold off — it's damp enough and rain is forecast tomorrow. Check again in the morning. ‡"],
+    [1,"thanks bot"],
+    [0,"Any time. I dream of raindrops on my leaves."],
+  ].map(([me,txt])=>bub(me,txt)).join("");
+  const sugg = ["how's it going?","should i water?","what changed today?"]
+    .map(s=>`<span style="display:inline-flex;align-items:center;min-height:32px;padding:0 12px;
+      border-radius:999px;border:1px dashed ${t.line};font-family:${t.mono};font-size:12px;
+      color:${mutT(t)}">${s}</span>`).join("");
+  return nav(t,"ask") + `<div style="max-width:640px;margin:0 auto;display:flex;flex-direction:column;gap:12px">
+    <div style="${pc(t)}padding:16px;display:flex;flex-direction:column;min-height:300px">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+        <span style="font-size:16px">🌱</span>
+        <span style="font-weight:600;font-size:14px;color:${shadeOn(t.ink,t.surf)}">ask garden bot</span>
+        ${chip(t,D.mood,t.surf2)}
+        <span style="margin-left:auto;font-family:${t.mono};font-size:11px;color:${mutT(t)}">has sensor context</span>
+      </div>
+      <div style="flex:1">${msgs}</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">${sugg}</div>
+      <div style="display:flex;gap:8px">
+        <div style="flex:1;background:${t.surf2};border:${t.bw} solid ${t.line};border-radius:${t.rS};
+          padding:11px 14px;font-family:${t.mono};font-size:13px;color:${mutT(t)};min-height:44px">ask it anything…</div>
+        ${btn(t,"Send",true)}</div></div>
+    <div style="font-family:${t.mono};font-size:11.5px;color:${mutB(t)}">
+      POST /api/agent/chat — injects current readings + recent journal, answers in character. ‡ phase 1.5</div></div>`;
+}
+
+/* ---------- variant 4: dashboard as canvas (edit mode) ---------- */
+function vCanvas(t){
+  const COLS = t.w<700 ? 4 : 12, ROW = 52;
+  const gridBg = `background-image:
+      linear-gradient(${t.line} 1px, transparent 1px),
+      linear-gradient(90deg, ${t.line} 1px, transparent 1px);
+    background-size: calc(100%/${COLS}) ${ROW}px;`;
+  const frame = (area,label,body,sel)=>`<div style="grid-area:${area};position:relative;
+      border:1.5px dashed ${sel?t.accent:t.line};border-radius:${t.r};background:${t.surf};
+      display:flex;flex-direction:column;overflow:hidden">
+    <div style="display:flex;align-items:center;gap:6px;padding:4px 8px;
+      border-bottom:1px dashed ${t.line};flex:none">
+      <span style="font-family:${t.mono};font-size:11px;color:${mutT(t)}">⠿</span>
+      <span style="font-family:${t.mono};font-size:10.5px;color:${sel?shadeOn(t.accent,t.surf):mutT(t)}">${label}</span>
+      <span style="margin-left:auto;font-family:${t.mono};font-size:11px;color:${mutT(t)}">⚙ ✕</span>
+    </div>
+    <div style="flex:1;min-height:0;overflow:hidden;padding:6px 10px">${body}</div>
+    <span style="position:absolute;right:4px;bottom:2px;font-family:${t.mono};
+      font-size:11px;color:${mutT(t)}">◢</span></div>`;
+  const metricBody = (n,v,u,c)=>`<div style="font-size:10px;color:${mutT(t)};text-transform:uppercase">${n}</div>
+    <div style="font-family:${t.mono};font-size:20px;color:${shadeOn(c,t.surf)}">${v}<span style="font-size:11px;color:${mutT(t)}"> ${u}</span></div>`;
+  const wide = t.w>=700;
+  const widgets = wide ? [
+    frame("1 / 1 / span 2 / span 8","bot",`<div style="display:flex;gap:10px;align-items:center">
+      <span style="font-size:22px">🌱</span>
+      <span style="font-family:${t.mono};font-size:12.5px;color:${shadeOn(t.ink,t.surf)}">“${D.speak}”</span></div>`),
+    frame("1 / 9 / span 2 / span 4","camera",`<div style="display:flex;height:100%;align-items:center;justify-content:center;
+      font-family:${t.mono};font-size:11px;color:${mutT(t)}">📹 live feed</div>`),
+    frame("3 / 1 / span 1 / span 3","metric",metricBody("inside air",D.inside,"°C",t.accent)),
+    frame("3 / 4 / span 1 / span 3","metric",metricBody("outside air",D.outside,"°C",t.sky)),
+    frame("3 / 7 / span 1 / span 3","metric",metricBody("humidity",D.humidity,"%",t.moss)),
+    frame("3 / 10 / span 1 / span 3","metric",metricBody("pressure",D.pressure,"hPa",mutT(t))),
+    frame("4 / 1 / span 3 / span 8","chart",chartMock(t,110,true),true),
+    frame("4 / 9 / span 3 / span 4","fan",`<div style="font-family:${t.mono};font-size:12px;
+      color:${shadeOn(t.ink,t.surf)}">🌀 fan ${D.fan.state} · ${D.fan.mode}<br>
+      <span style="color:${mutT(t)}">on ≥ ${D.fan.on}° · off ≤ ${D.fan.off}°</span></div>`),
+    frame("7 / 1 / span 3 / span 12","journal",D.journal.slice(0,3).map(e=>
+      `<div style="font-family:${t.mono};font-size:11.5px;color:${shadeOn(t.ink,t.surf)};
+      padding:3px 0;border-bottom:1px solid ${t.line}"><span style="color:${mutT(t)}">${e.t}</span> ${e.text}</div>`).join("")),
+  ] : [
+    frame("1 / 1 / span 2 / span 4","bot",`<span style="font-family:${t.mono};font-size:12px;
+      color:${shadeOn(t.ink,t.surf)}">🌱 “${D.speak}”</span>`),
+    frame("3 / 1 / span 1 / span 2","metric",metricBody("inside",D.inside,"°C",t.accent)),
+    frame("3 / 3 / span 1 / span 2","metric",metricBody("outside",D.outside,"°C",t.sky)),
+    frame("4 / 1 / span 1 / span 2","metric",metricBody("humidity",D.humidity,"%",t.moss)),
+    frame("4 / 3 / span 1 / span 2","metric",metricBody("pressure",D.pressure,"hPa",mutT(t))),
+    frame("5 / 1 / span 3 / span 4","chart",chartMock(t,100,true),true),
+    frame("8 / 1 / span 2 / span 4","journal",`<span style="font-family:${t.mono};font-size:11px;
+      color:${mutT(t)}">journal feed…</span>`),
+    frame("10 / 1 / span 2 / span 4","camera",`<span style="font-family:${t.mono};font-size:11px;
+      color:${mutT(t)}">📹 live feed</span>`),
+  ];
+  const palette = `<div style="${pc(t)}padding:12px 16px;display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+    <span style="font-family:${t.mono};font-size:11px;color:${mutT(t)}">add:</span>
+    ${["metric","chart","camera","journal","fan","‡ weather","‡ pump","‡ note"]
+      .map(w=>chip(t,"+ "+w)).join("")}</div>`;
+  return nav(t,"dash") + `<div style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap">
+      ${chip(t,"✏️ editing layout",t.accentSoft)}
+      <span style="font-family:${t.mono};font-size:11px;color:${mutB(t)}">
+        ${COLS}-col grid · drag ⠿ to move · ◢ to resize · ⚙ per-widget config</span>
+      <span style="margin-left:auto">${btn(t,"Done",true)}</span></div>
+    <div style="display:grid;grid-template-columns:repeat(${COLS},1fr);
+      grid-auto-rows:${ROW}px;gap:8px;border-radius:${t.r};padding:8px;${gridBg}">
+      ${widgets.join("")}</div>
+    ${palette}</div>`;
+}
+
+/* ---------- registry ---------- */
+const VARIANTS = [
+  ["hybrid","Dashboard", vHybrid,
+   "DECIDED: blend of bot-first + mission control — this is the canvas in LOCKED (view) mode. Bot hero card up top (avatar, mood, narration, wake button) — expandable: collapsed = speech bubble, expanded (shown) = recent musings + inline ask box. Then metric widgets, history chart, journal feed; camera + fan rail. Default layout for the canvas — every block here is a movable widget, see 'canvas' variant."],
+  ["devices","Devices", vDevices,
+   "Modular hardware: every sensor/actuator is a configured row (driver + params + location + status). Edit panel shows per-driver fields; relay-type devices get safety params. Implies a device registry in config/DB instead of hardcoded sensor names."],
+  ["ask","Ask the bot", vAsk,
+   "Free-form chat with the agent — same LLM client, prompt gets current observation + journal recall + question. Reached via the 'ask' nav tab. Chat turns journal as kind='chat' for continuity."],
+  ["canvas","Dashboard = canvas", vCanvas,
+   "DECIDED: the whole dashboard is a widget canvas, not just the metrics. Every block (bot, metric, chart, camera, journal, fan, pump‡, weather‡, note‡) is a positioned widget on a column grid; edit mode = drag/resize/add/remove, each widget's ⚙ holds its own config (which metric, which camera, which sensor). Layout persists server-side. Supersedes the per-metrics-only customise variant."],
+];
+
+/* ---------- render ---------- */
+const dMode = document.getElementById("dMode"), dWidth = document.getElementById("dWidth");
+[["dark","dark"],["light","light"]].forEach(([v,l])=>dMode.add(new Option(l,v)));
+[[375,"375 · phone"],[768,"768 · tablet"],[1280,"1280 · desktop"]].forEach(([v,l])=>dWidth.add(new Option(l,v)));
+dMode.value="dark"; dWidth.value="1280";
+dMode.onchange=dWidth.onchange=render;
+
+function render(){
+  const t = tokens(dMode.value, +dWidth.value);
+  document.body.style.background=t.bg; document.body.style.color=t.ink;
+  document.getElementById("bar").style.background=t.surf;
+  document.getElementById("app").innerHTML = VARIANTS.map(([id,name,fn,why])=>`
+    <div class="variant">
+      <div class="vlabel">
+        <span class="id" style="background:${t.surf2};color:${shadeOn(t.accent,t.surf2)}">${id}</span>
+        <span class="name">${name}</span>
+        <span style="font-family:${t.mono};font-size:11px;color:${mutB(t)}">${t.mode} · ${t.w}px</span>
+      </div>
+      <div class="why" style="color:${mutB(t)}">${why}</div>
+      <div class="stage"><div class="frame" style="width:${t.w}px;min-height:200px;padding:16px;
+        background:${t.bg};border:1px solid ${t.line}">${fn(t)}</div></div>
+    </div>`).join("");
+}
+render();
+</script>
+</body>
+</html>

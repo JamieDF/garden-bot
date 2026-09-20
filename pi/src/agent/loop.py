@@ -12,6 +12,7 @@ from typing import Optional
 
 from pydantic import ValidationError
 
+from .. import registry
 from ..config import settings
 from ..database import (
     get_journal,
@@ -19,7 +20,6 @@ from ..database import (
     get_stats,
     insert_journal_entry,
 )
-from ..sensors import fan
 from .llm import LLMClient
 from .schemas import Decision
 
@@ -30,6 +30,10 @@ You wake up, look at your sensor readings, and say one short sentence.
 Be charming and a little odd. Max 20 words for "speak".
 You cannot act yet - you only observe and speak."""
 
+CHAT_SYSTEM = """You are Garden Bot, a small robot tending plants.
+You answer questions about the garden using the sensor context given.
+Be charming and a little odd. Keep answers to one or two short sentences."""
+
 
 class GardenAgent:
     def __init__(self):
@@ -39,10 +43,11 @@ class GardenAgent:
 
     def observe(self) -> dict:
         """Snapshot the world: sensors, 24h stats, fan state."""
+        fan_dev = registry.default_fan()
         return {
             "readings": get_latest_readings(),
             "stats_24h": get_stats(datetime.utcnow() - timedelta(days=1)),
-            "fan": fan.get(),
+            "fan": fan_dev.get() if fan_dev else None,
             "time": datetime.utcnow().isoformat(),
         }
 
@@ -109,3 +114,34 @@ class GardenAgent:
             logger.error(f"Wake failed: {e}")
             insert_journal_entry("error", {"error": str(e)})
             return {"status": "error", "error": str(e)}
+
+    async def chat(self, message: str) -> dict:
+        """Free-form question -> in-character answer with sensor context."""
+        if not settings.llm_enabled:
+            return {"status": "disabled", "reply": "zZz — brain not plugged in."}
+
+        observation = self.observe()
+        memory = self.recall()
+        past = list(reversed(get_journal(limit=8, kind="chat")))
+        turns = []
+        for e in past:
+            turns.append({"role": "user", "content": e["data"]["user"]})
+            turns.append({"role": "assistant", "content": e["data"]["bot"]})
+
+        messages = [
+            {"role": "system", "content": CHAT_SYSTEM},
+            {
+                "role": "user",
+                "content": json.dumps(
+                    {
+                        "sensor_context": observation,
+                        "recent_memory": memory,
+                    }
+                ),
+            },
+            *turns,
+            {"role": "user", "content": message},
+        ]
+        reply = await self.llm.chat(messages, max_tokens=160)
+        insert_journal_entry("chat", {"user": message, "bot": reply})
+        return {"status": "ok", "reply": reply}

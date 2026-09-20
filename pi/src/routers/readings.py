@@ -7,7 +7,13 @@ from typing import Optional
 
 from fastapi import APIRouter, Query
 
-from ..database import get_history, get_latest_readings, get_stats
+from .. import registry
+from ..database import (
+    get_devices,
+    get_history,
+    get_latest_readings,
+    get_stats,
+)
 from ..models import (
     HistoryQuery,
     Reading,
@@ -71,6 +77,31 @@ async def get_sensor_stats() -> SensorStatsResponse:
         month=_build_period_stats(month_stats),
         temp_diff=temp_diff,
     )
+
+
+@router.get("/readings/current")
+async def get_current_readings() -> list[dict]:
+    """Latest value per metric for every configured sensor device."""
+    rows = {r["sensor"]: r for r in get_latest_readings()}
+    out = []
+    for d in get_devices(enabled_only=True):
+        if d["driver"] not in registry.SENSOR_DRIVERS:
+            continue
+        for key, r in rows.items():
+            if key == d["name"] or key.startswith(d["name"] + "."):
+                metric = key.split(".", 1)[1] if "." in key else "value"
+                out.append(
+                    {
+                        "device": d["name"],
+                        "label": d["label"],
+                        "location": d["location"],
+                        "metric": metric,
+                        "value": r["value"],
+                        "unit": r["unit"],
+                        "timestamp": r["timestamp"],
+                    }
+                )
+    return out
 
 
 @router.get("/readings", response_model=SensorReadings)

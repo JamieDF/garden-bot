@@ -7,13 +7,22 @@ export default {
   theme: {
     extend: {
       colors: {
-        dark: '#0a0a0f',
-        card: '#16213e',
+        dark: '#0b0f14',
+        card: '#141b24',
+        card2: '#1b2531',
+        line: '#263242',
         primary: '#64ffda',
-        secondary: '#48b8d0',
+        sky: '#79b8ff',
+        moss: '#7ee787',
+        warn: '#f0b72f',
+        danger: '#ff7b72',
         accent: '#a8ff78',
-        text: '#ccd6f6',
-        muted: '#8892b0',
+        text: '#e8eef4',
+        muted: '#8b98a5',
+      },
+      fontFamily: {
+        mono: ["'IBM Plex Mono'", 'ui-monospace', 'monospace'],
+        sans: ["'Space Grotesk'", 'system-ui', 'sans-serif'],
       },
     },
   },

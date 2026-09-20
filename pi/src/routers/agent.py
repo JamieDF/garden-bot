@@ -5,6 +5,7 @@ Agent status, journal, and manual-wake endpoints.
 from typing import Optional
 
 from fastapi import APIRouter, Query
+from pydantic import BaseModel
 
 from ..agent.loop import GardenAgent
 from ..config import settings
@@ -41,3 +42,13 @@ async def agent_journal(
 async def agent_wake() -> dict:
     """Trigger a wake cycle manually (for dev/testing)."""
     return await _agent.wake()
+
+
+class ChatRequest(BaseModel):
+    message: str
+
+
+@router.post("/chat")
+async def agent_chat(body: ChatRequest) -> dict:
+    """Ask the bot a question - answers with current sensor context."""
+    return await _agent.chat(body.message)
