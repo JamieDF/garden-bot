@@ -6,6 +6,7 @@ Handles fans and pumps: None temps, corrupted files, inverted thresholds.
 import json
 import logging
 import threading
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -103,6 +104,7 @@ class FanController:
     def set_manual(self, on: bool) -> dict:
         """Manually turn the relay on/off."""
         data = self._load()
+        data.pop("off_at", None)
         data["state"] = "on" if on else "off"
         data["mode"] = "manual"
         self._save(data)
@@ -120,6 +122,7 @@ class FanController:
                 f"on_threshold ({on_threshold}) must be > off_threshold ({off_threshold})"
             )
         data = self._load()
+        data.pop("off_at", None)
         data["mode"] = "auto" if enabled else "manual"
         data["on_threshold"] = on_threshold
         data["off_threshold"] = off_threshold
@@ -130,11 +133,36 @@ class FanController:
         )
         return self.get()
 
+    def run_for(self, seconds: float) -> dict:
+        """Timed run: on now, auto-off at deadline - enforced by check(),
+        survives process restarts since off_at lives in the state file."""
+        data = self._load()
+        data["state"] = "on"
+        data["off_at"] = time.time() + seconds
+        self._save(data)
+        self._ensure_gpio()
+        self._write(True)
+        logger.info(f"[{self.name}] timed ON for {seconds:.0f}s")
+        return self.get()
+
     def check(self, temp: Optional[float]) -> None:
         """Auto control based on temperature. Safe with None temp."""
+        data = self._load()
+
+        # Timed-run enforcement - before any early return, works even
+        # when the watched sensor is dead or mode is manual.
+        off_at = data.get("off_at")
+        if off_at and time.time() >= off_at:
+            del data["off_at"]
+            data["state"] = "off"
+            self._ensure_gpio()
+            self._write(False)
+            self._save(data)
+            logger.info(f"[{self.name}] timed OFF")
+            return
+
         if temp is None:
             return
-        data = self._load()
         if data["mode"] != "auto":
             return
 

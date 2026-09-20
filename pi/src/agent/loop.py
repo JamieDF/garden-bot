@@ -15,20 +15,24 @@ from pydantic import ValidationError
 from .. import registry, weather
 from ..config import settings
 from ..database import (
+    get_device,
     get_journal,
     get_latest_readings,
     get_stats,
     insert_journal_entry,
 )
+from . import safety
 from .llm import LLMClient
 from .schemas import Decision
 
 logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are Garden Bot, a small robot tending plants.
-You wake up, look at your sensor readings, and say one short sentence.
-Be charming and a little odd. Max 20 words for "speak".
-You cannot act yet - you only observe and speak."""
+You wake up, look at your sensors and actuators, and decide what to do.
+Actions: none, speak, fan_on, fan_off, fan_auto, water, alert, log_note, wait.
+For fan_*/water actions set "device" to an actuator name from observation.actuators.
+"water" runs a pump for duration_s seconds - a safety layer may veto it.
+Be charming and a little odd. Max 20 words for "speak"."""
 
 CHAT_SYSTEM = """You are Garden Bot, a small robot tending plants.
 You answer questions about the garden using the sensor context given.
@@ -48,6 +52,10 @@ class GardenAgent:
             "readings": get_latest_readings(),
             "stats_24h": get_stats(datetime.utcnow() - timedelta(days=1)),
             "fan": fan_dev.get() if fan_dev else None,
+            "actuators": [
+                {**registry.controller_for(d).get(), "driver": d["driver"]}
+                for d in registry.actuator_devices()
+            ],
             "time": datetime.utcnow().isoformat(),
         }
 
@@ -86,11 +94,44 @@ class GardenAgent:
                 mood="confused", observation="unparseable thoughts", action="none"
             )
 
-    def act(self, decision: Decision) -> dict:
-        """Execute whitelisted actions. Phase 0: narration only."""
-        if decision.action == "speak" and decision.speak:
-            return {"narration": decision.speak}
-        return {}
+    def act(self, decision: Decision, observation: dict, memory: list[dict]) -> dict:
+        """Execute whitelisted actions through the safety layer."""
+        outcome = {}
+        if decision.speak:
+            outcome["narration"] = decision.speak
+
+        verdict = safety.evaluate(decision, observation, memory)
+        if not verdict.ok:
+            logger.info(f"Vetoed {decision.action}: {verdict.reason}")
+            outcome["vetoed"] = f"{decision.action}: {verdict.reason}"
+            return outcome
+
+        a = decision.action
+        if a in safety.DEVICE_ACTIONS:
+            dev = get_device(decision.device)
+            ctrl = registry.controller_for(dev)
+            if a == "fan_on":
+                ctrl.set_manual(True)
+            elif a == "fan_off":
+                ctrl.set_manual(False)
+            elif a == "fan_auto":
+                p = dev["params"]
+                ctrl.set_auto(
+                    True, p.get("on_threshold", 20.0), p.get("off_threshold", 19.0)
+                )
+            elif a == "water":
+                ctrl.run_for(verdict.duration_s)
+                outcome["duration_s"] = verdict.duration_s
+            outcome["executed"] = a
+            outcome["device"] = dev["name"]
+        elif a == "alert":
+            outcome["alert"] = True
+        elif a == "log_note":
+            insert_journal_entry("note", {"note": decision.note or decision.speak})
+            outcome["noted"] = True
+        elif a == "wait":
+            outcome["waited"] = True
+        return outcome
 
     async def wake(self, reason: Optional[str] = None) -> dict:
         """One full wake cycle. Returns a result summary."""
@@ -106,7 +147,7 @@ class GardenAgent:
                 observation["wake_reason"] = reason
             memory = self.recall()
             decision = await self.decide(observation, memory)
-            outcome = self.act(decision)
+            outcome = self.act(decision, observation, memory)
             insert_journal_entry(
                 "decision",
                 {
