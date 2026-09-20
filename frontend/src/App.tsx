@@ -18,7 +18,7 @@ function App() {
     <div className="min-h-screen bg-dark p-4 md:p-6">
       <div className="max-w-6xl mx-auto">
         <div className="flex items-center gap-2 mb-4">
-          <span className="font-bold text-text text-base">🌱 garden bot</span>
+          <span className="font-bold text-text text-base">garden bot</span>
           <nav className="ml-3 flex gap-1">
             {NAV.map((n) => (
               <button

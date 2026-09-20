@@ -36,12 +36,12 @@ export function BotCard({ status, musings }: Props) {
 
   return (
     <div className="bg-card border border-line rounded-2xl p-4 flex gap-3.5 h-full overflow-hidden">
-      <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center text-2xl flex-none">
-        🌱
+      <div className="w-12 h-12 rounded-full bg-primary/15 flex items-center justify-center flex-none overflow-hidden">
+        <img src="/garden-bot.svg" alt="garden bot" className="w-9 h-9" />
       </div>
       <div className="min-w-0 min-h-0 flex-1 flex flex-col">
         <div className="flex items-center gap-2 flex-wrap mb-2">
-          <span className="font-bold text-text">Garden Bot</span>
+          <span className="font-bold text-text">garden bot</span>
           {mood && (
             <span className="text-[11px] font-medium px-2.5 h-6 inline-flex items-center rounded-full bg-card2 text-text font-mono">
               {mood}
