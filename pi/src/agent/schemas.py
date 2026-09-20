@@ -16,6 +16,7 @@ ACTIONS = Literal[
     "water",      # run a pump actuator for duration_s seconds
     "alert",      # flag something for human attention
     "log_note",   # write a note to the journal (memory)
+    "remember",   # store a persistent fact (fact_key + fact_value)
     "wait",       # explicitly decide to check again later
 ]
 
@@ -39,6 +40,12 @@ class Decision(BaseModel):
     )
     note: Optional[str] = Field(
         default=None, description="Text to journal for 'log_note'"
+    )
+    fact_key: Optional[str] = Field(
+        default=None, description="Short label for 'remember' facts"
+    )
+    fact_value: Optional[str] = Field(
+        default=None, description="Fact content for 'remember'"
     )
     speak: str = Field(
         default="", description="One short sentence to say out loud (max ~20 words)"

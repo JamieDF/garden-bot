@@ -59,6 +59,13 @@ def init_db() -> None:
                 value TEXT NOT NULL
             )
         """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS agent_facts (
+                key TEXT PRIMARY KEY,
+                value TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )
+        """)
         conn.commit()
     seed_devices()
 
@@ -311,3 +318,23 @@ def get_journal(limit: int = 50, kind: Optional[str] = None) -> list[dict]:
         cursor = conn.execute(query, params)
         rows = cursor.fetchall()
         return [{**dict(row), "data": json.loads(row["data"])} for row in rows]
+
+
+def upsert_fact(key: str, value: str) -> None:
+    """Store a persistent agent fact (long-term memory)."""
+    with get_db() as conn:
+        conn.execute(
+            "INSERT OR REPLACE INTO agent_facts (key, value, updated_at) "
+            "VALUES (?, ?, ?)",
+            (key, value, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+
+
+def get_facts() -> list[dict]:
+    """All remembered facts."""
+    with get_db() as conn:
+        rows = conn.execute(
+            "SELECT key, value, updated_at FROM agent_facts ORDER BY key"
+        ).fetchall()
+        return [dict(r) for r in rows]

@@ -39,17 +39,22 @@ poller on threshold crossings.
 - ✅ Dashboard: bot card with narration + musings, journal feed, chat
 - ⏸ llama.cpp `llama-server` + SmolLM2-135M Q4_K_M (~100MB) — deferred,
   using DeepSeek during laptop dev; config swap when on-Pi
-- ⬜ Event-driven wakes from poller thresholds (last item)
+- ✅ Event-driven wakes from poller (actuator flips, metric swings,
+  sensor failures -> `POST /wake {"reason"}` with debounce)
 
-## Phase 2 — Actual agent (tool-capable LLM)
+## Phase 2 — Actual agent (tool-capable LLM) ✅ core done
 
-- Decision schema gains real actions: `fan_on/off/auto`, `water`,
-  `alert`, `log_note`, `wait` — same schema whether the backend is a
-  local small model (grammar) or a hosted one (tool calling)
-- Deterministic safety layer: rate limits (max 1 water/6h), sensor
-  bounds, hysteresis
-- Memory upgrade: journal summaries + facts table
-- Eval harness: canned sensor scenarios to compare providers
+- ✅ Action whitelist: `fan_on/off/auto`, `water`, `alert`, `log_note`,
+  `remember`, `wait` + `device`/`duration_s` fields
+- ✅ Safety layer (`src/agent/safety.py`): driver matching, water
+  cooldown (6h), wet-soil veto (>60%), duration clamp (30s); vetoes
+  are journaled
+- ✅ Timed pump runs: `run_for()` stores `off_at` in the state file;
+  poller's `check()` enforces it — survives process restarts
+- ✅ Facts table (`agent_facts`) + `remember` action — persistent memory
+- ✅ Eval harness (`scripts/eval-agent.py`): canned scenarios through
+  decide() + safety, compare providers by pointing GROW_LLM_* at each
+- ⬜ Journal summaries (rolling condensation of old entries)
 
 ## Phase 3 — Expansion
 

@@ -16,10 +16,12 @@ from .. import registry, weather
 from ..config import settings
 from ..database import (
     get_device,
+    get_facts,
     get_journal,
     get_latest_readings,
     get_stats,
     insert_journal_entry,
+    upsert_fact,
 )
 from . import safety
 from .llm import LLMClient
@@ -29,9 +31,10 @@ logger = logging.getLogger(__name__)
 
 SYSTEM_PROMPT = """You are Garden Bot, a small robot tending plants.
 You wake up, look at your sensors and actuators, and decide what to do.
-Actions: none, speak, fan_on, fan_off, fan_auto, water, alert, log_note, wait.
+Actions: none, speak, fan_on, fan_off, fan_auto, water, alert, log_note, remember, wait.
 For fan_*/water actions set "device" to an actuator name from observation.actuators.
 "water" runs a pump for duration_s seconds - a safety layer may veto it.
+"remember" stores a persistent fact - set fact_key and fact_value.
 Be charming and a little odd. Max 20 words for "speak"."""
 
 CHAT_SYSTEM = """You are Garden Bot, a small robot tending plants.
@@ -68,11 +71,16 @@ class GardenAgent:
             )
         return obs
 
-    def recall(self) -> list[dict]:
-        """Recent decisions = the bot's short-term memory."""
-        return get_journal(limit=settings.agent_journal_recall, kind="decision")
+    def recall(self) -> dict:
+        """Short-term memory: recent decisions + persistent facts."""
+        return {
+            "recent": get_journal(
+                limit=settings.agent_journal_recall, kind="decision"
+            ),
+            "facts": get_facts(),
+        }
 
-    async def decide(self, observation: dict, memory: list[dict]) -> Decision:
+    async def decide(self, observation: dict, memory: dict) -> Decision:
         """Prompt the model for a structured decision."""
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -129,6 +137,10 @@ class GardenAgent:
         elif a == "log_note":
             insert_journal_entry("note", {"note": decision.note or decision.speak})
             outcome["noted"] = True
+        elif a == "remember":
+            if decision.fact_key and decision.fact_value:
+                upsert_fact(decision.fact_key, decision.fact_value)
+                outcome["remembered"] = decision.fact_key
         elif a == "wait":
             outcome["waited"] = True
         return outcome
@@ -147,12 +159,12 @@ class GardenAgent:
                 observation["wake_reason"] = reason
             memory = self.recall()
             decision = await self.decide(observation, memory)
-            outcome = self.act(decision, observation, memory)
+            outcome = self.act(decision, observation, memory["recent"])
             insert_journal_entry(
                 "decision",
                 {
                     "observation": observation,
-                    "memory_used": len(memory),
+                    "memory_used": len(memory["recent"]),
                     "decision": decision.model_dump(),
                     "outcome": outcome,
                 },
