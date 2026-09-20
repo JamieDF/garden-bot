@@ -30,6 +30,11 @@ class Settings(BaseSettings):
     agent_wake_interval: int = 1800  # seconds between wakes
     agent_journal_recall: int = 5  # past decisions fed back as memory
 
+    # Weather (Open-Meteo, no key needed). Agent observes weather only
+    # when both are set.
+    weather_lat: Optional[float] = None
+    weather_lon: Optional[float] = None
+
     class Config:
         env_prefix = "GROW_"
 

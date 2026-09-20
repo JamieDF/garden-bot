@@ -25,6 +25,8 @@ export interface LayoutItem {
   y: number;
   w: number;
   h: number;
+  minW?: number;
+  minH?: number;
   config: Record<string, unknown>;
 }
 

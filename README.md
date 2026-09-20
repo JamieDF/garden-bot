@@ -95,6 +95,7 @@ Environment variables (prefix with `GROW_`):
 | `GROW_LLM_MODEL` | `smollm2-135m` | Model name to request |
 | `GROW_LLM_API_KEY` | `none` | Bearer token if provider needs one |
 | `GROW_AGENT_WAKE_INTERVAL` | `1800` | Seconds between agent wakes |
+| `GROW_WEATHER_LAT` / `GROW_WEATHER_LON` | unset | Coordinates for Open-Meteo; agent observes weather when set |
 
 The agent works with llama.cpp `llama-server`, Ollama, or hosted APIs
 (tested with DeepSeek). Point `GROW_LLM_BASE_URL` at any of them.

@@ -12,7 +12,7 @@ from typing import Optional
 
 from pydantic import ValidationError
 
-from .. import registry
+from .. import registry, weather
 from ..config import settings
 from ..database import (
     get_journal,
@@ -50,6 +50,15 @@ class GardenAgent:
             "fan": fan_dev.get() if fan_dev else None,
             "time": datetime.utcnow().isoformat(),
         }
+
+    async def _observe(self) -> dict:
+        """observe() + outside weather when configured."""
+        obs = self.observe()
+        if settings.weather_lat is not None and settings.weather_lon is not None:
+            obs["weather"] = await weather.fetch(
+                settings.weather_lat, settings.weather_lon
+            )
+        return obs
 
     def recall(self) -> list[dict]:
         """Recent decisions = the bot's short-term memory."""
@@ -92,7 +101,7 @@ class GardenAgent:
         self.last_wake = datetime.utcnow()
 
         try:
-            observation = self.observe()
+            observation = await self._observe()
             memory = self.recall()
             decision = await self.decide(observation, memory)
             outcome = self.act(decision)
@@ -111,16 +120,16 @@ class GardenAgent:
                 "outcome": outcome,
             }
         except Exception as e:
-            logger.error(f"Wake failed: {e}")
-            insert_journal_entry("error", {"error": str(e)})
-            return {"status": "error", "error": str(e)}
+            logger.exception("Wake failed")
+            insert_journal_entry("error", {"error": repr(e)})
+            return {"status": "error", "error": repr(e)}
 
     async def chat(self, message: str) -> dict:
         """Free-form question -> in-character answer with sensor context."""
         if not settings.llm_enabled:
             return {"status": "disabled", "reply": "zZz — brain not plugged in."}
 
-        observation = self.observe()
+        observation = await self._observe()
         memory = self.recall()
         past = list(reversed(get_journal(limit=8, kind="chat")))
         turns = []

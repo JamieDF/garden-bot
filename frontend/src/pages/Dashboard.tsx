@@ -13,8 +13,8 @@ import { FanWidget } from '../components/FanWidget';
 
 const Grid = WidthProvider(Responsive);
 
-const WIDGET_DEFAULTS: Record<string, { w: number; h: number }> = {
-  bot: { w: 8, h: 2 },
+const WIDGET_DEFAULTS: Record<string, { w: number; h: number; minH?: number }> = {
+  bot: { w: 8, h: 4, minH: 4 },
   metric: { w: 3, h: 1 },
   chart: { w: 8, h: 4 },
   camera: { w: 4, h: 2 },
