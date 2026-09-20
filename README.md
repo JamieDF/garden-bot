@@ -57,6 +57,29 @@ ssh pi@<pi-ip>
 cd ~/garden-bot && bash scripts/setup-pi.sh
 ```
 
+### Laptop testing (no Pi hardware)
+
+The `mock` device driver produces fake drifting sensor values, and the camera
+stream falls back to a placeholder frame when `rpicam-vid` isn't installed.
+Relays no-op safely without GPIO.
+
+```bash
+# 1. API (uses .env for LLM config if present)
+cd pi && uvicorn src.main:app --port 8000
+
+# 2. Mock devices - fake sensors + a pump
+./scripts/mock-devices.sh
+
+# 3. Poller - generates readings every 30s
+cd pi && python -m src.poller
+
+# 4. Frontend - proxies API/stream to localhost:8000
+cd frontend && PI_HOST=127.0.0.1 npm run dev
+```
+
+Add more fake sensors via the Devices page or the API — driver `mock`,
+`params` maps metric names to base values, e.g. `{"temperature": 22, "humidity": 60}`.
+
 ## Configuration
 
 Environment variables (prefix with `GROW_`):

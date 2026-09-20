@@ -8,11 +8,11 @@ from typing import Optional
 
 from .config import settings
 from .database import get_devices
-from .sensors import BME280Reader, DS18B20Reader, fan
+from .sensors import BME280Reader, DS18B20Reader, MockReader, fan
 
 logger = logging.getLogger(__name__)
 
-SENSOR_DRIVERS = ("bme280", "ds18b20", "moisture")
+SENSOR_DRIVERS = ("bme280", "ds18b20", "moisture", "mock")
 ACTUATOR_DRIVERS = ("fan", "pump")
 
 METRIC_UNITS = {
@@ -60,6 +60,8 @@ def reader_for(device: dict):
         )
     elif driver == "ds18b20":
         reader = _ds18b20_reader(params)
+    elif driver == "mock":
+        reader = MockReader(params)
     else:
         logger.warning(f"No sensor driver for '{driver}' ({name})")
     if reader:
