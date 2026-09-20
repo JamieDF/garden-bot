@@ -11,7 +11,11 @@ Raspberry Pi-based indoor growing monitoring and automation system.
 - React dashboard: editable widget canvas (drag/resize/add), devices and
   ask pages, Recharts history
 - Agent wake loop with provider-agnostic LLM + Open-Meteo weather context
-  (see `docs/agent-plan.md`)
+  (see `docs/agent-plan.md`): narrates, answers questions, remembers facts,
+  and can act on devices (`fan_*`, `water`) behind a deterministic safety
+  layer - rate limits, soil-wetness veto, timed pump runs
+- Event-driven wakes - the poller pokes the agent on actuator flips,
+  metric swings, and sensor failures
 - `mock` driver + laptop test setup for developing without Pi hardware
 
 ## Hardware
@@ -99,6 +103,7 @@ Environment variables (prefix with `GROW_`):
 | `GROW_LLM_MODEL` | `smollm2-135m` | Model name to request |
 | `GROW_LLM_API_KEY` | `none` | Bearer token if provider needs one |
 | `GROW_AGENT_WAKE_INTERVAL` | `1800` | Seconds between agent wakes |
+| `GROW_AGENT_EVENT_WAKE_MIN` | `300` | Min seconds between event-triggered wakes (threshold flips, swings, sensor failures) |
 | `GROW_WEATHER_LAT` / `GROW_WEATHER_LON` | unset | Coordinates for Open-Meteo; agent observes weather when set |
 
 The agent works with llama.cpp `llama-server`, Ollama, or hosted APIs
@@ -218,5 +223,6 @@ garden-bot/
 │   └── agent-plan.md           # Agent design + phases
 └── scripts/
     ├── setup-pi.sh             # Full Pi setup script
-    └── mock-devices.sh         # Configure mock devices for laptop testing
+    ├── mock-devices.sh         # Configure mock devices for laptop testing
+    └── eval-agent.py           # Canned scenarios through decide() + safety
 ```
