@@ -4,14 +4,15 @@ Raspberry Pi-based indoor growing monitoring and automation system.
 
 ## Features
 
-- BME280 sensor (temperature, humidity, pressure)
-- DS18B20 temperature probes (inside/outside air)
-- Pi Camera 2 video streaming
+- Configurable device registry - sensors, relays, cameras defined in the DB
+  and editable from the UI (BME280, DS18B20, mock, relay actuators)
+- Pi Camera 2 video streaming (placeholder stream when off-Pi)
 - FastAPI backend with SQLite storage
-- React dashboard with Tailwind CSS and Recharts
-- Multi-client MJPEG streaming
-- Chart switching (temperature, humidity, pressure)
-- Agent wake loop with provider-agnostic LLM (see `docs/agent-plan.md`)
+- React dashboard: editable widget canvas (drag/resize/add), devices and
+  ask pages, Recharts history
+- Agent wake loop with provider-agnostic LLM + Open-Meteo weather context
+  (see `docs/agent-plan.md`)
+- `mock` driver + laptop test setup for developing without Pi hardware
 
 ## Hardware
 
@@ -73,7 +74,10 @@ cd pi && uvicorn src.main:app --port 8000
 # 3. Poller - generates readings every 30s
 cd pi && python -m src.poller
 
-# 4. Frontend - proxies API/stream to localhost:8000
+# 4. Agent daemon - wakes the bot every GROW_AGENT_WAKE_INTERVAL seconds
+cd pi && python -m src.agent
+
+# 5. Frontend - proxies API/stream to localhost:8000
 cd frontend && PI_HOST=127.0.0.1 npm run dev
 ```
 
@@ -105,23 +109,33 @@ The agent works with llama.cpp `llama-server`, Ollama, or hosted APIs
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/` | Dashboard |
-| GET | `/api/readings` | Current sensor values |
+| GET | `/api/readings/current` | Latest value per device metric |
+| GET | `/api/readings` | Current values (legacy shape) |
 | GET | `/api/readings/latest` | Most recent reading per sensor |
 | GET | `/api/history` | Historical readings |
 | GET | `/api/stats` | Min/max stats for 24h, 7d, 30d |
-| GET | `/api/fan` | Fan state |
+| GET | `/api/devices` | All configured devices |
+| POST | `/api/devices` | Create a device |
+| PUT | `/api/devices/{name}` | Update a device |
+| DELETE | `/api/devices/{name}` | Delete a device |
+| GET | `/api/devices/{name}/state` | Actuator/sensor state |
+| POST | `/api/devices/{name}/action` | Actuator on/off/auto/manual |
+| GET | `/api/fan` | Default fan state (adapter) |
 | POST | `/api/fan` | Manual fan on/off |
 | PUT | `/api/fan/auto` | Auto mode + thresholds |
+| GET | `/api/dashboard/layout` | Widget canvas layout |
+| PUT | `/api/dashboard/layout` | Save widget canvas layout |
 | GET | `/api/agent/status` | Agent config and runtime state |
 | GET | `/api/agent/journal` | Agent journal entries |
 | POST | `/api/agent/wake` | Trigger an agent wake manually |
+| POST | `/api/agent/chat` | Ask the bot a question |
 | GET | `/stream.mjpg` | Live camera MJPEG stream |
 | GET | `/health` | Service health check |
 
 ### History Query
 
 ```
-GET /api/history?sensor=inside_air_temp&from_time=2024-01-01T00:00:00&limit=5000
+GET /api/history?sensor=inside_air.temperature&from_time=2024-01-01T00:00:00&limit=5000
 ```
 
 ## Data Model
@@ -132,20 +146,28 @@ GET /api/history?sensor=inside_air_temp&from_time=2024-01-01T00:00:00&limit=5000
 {
   "id": 123,
   "timestamp": "2024-01-01T12:00:00",
-  "sensor": "inside_air_temp",
+  "sensor": "inside_air.temperature",
   "value": 24.5,
   "unit": "°C"
 }
 ```
 
-### Sensors
+### Devices
 
-| Sensor Name | Description | Unit |
-|-------------|-------------|------|
-| `inside_air_temp` | DS18B20 inside air temp | °C |
-| `outside_air_temp` | DS18B20 outside air temp | °C |
-| `inside_humidity` | BME280 humidity | % |
-| `inside_pressure` | BME280 pressure | hPa |
+Devices live in the `devices` table; each has a `name`, `label`, `driver`,
+`params` (JSON), `location`, and `enabled` flag. Sensor readings are keyed
+`{device}.{metric}` — e.g. `inside_air.temperature`, `bed_a_moisture.moisture`.
+
+| Driver | Kind | Params example |
+|--------|------|----------------|
+| `bme280` | sensor | `{"bus": 1, "address": 118}` |
+| `ds18b20` | sensor | `{"index": 0}` or `{"id": "28-xxx"}` |
+| `mock` | sensor | `{"temperature": 22, "humidity": 60}` |
+| `fan` / `pump` | actuator | `{"pin": 17, "watch": "inside_air.temperature", "on_threshold": 20, "off_threshold": 19}` |
+| `camera` | stream | `{"width": 640, "height": 480, "fps": 15}` |
+
+Actuator `watch` points at a `{device}.{metric}` key; auto mode drives it
+between `on_threshold`/`off_threshold` deterministically.
 
 ## Services
 
@@ -178,11 +200,13 @@ garden-bot/
 │   ├── src/
 │   │   ├── main.py              # FastAPI entry + serves frontend
 │   │   ├── config.py            # Settings from env
-│   │   ├── database.py          # SQLite ops
+│   │   ├── database.py          # SQLite ops (readings, devices, journal)
+│   │   ├── registry.py          # device -> driver/actuator instances
 │   │   ├── poller.py            # Sensor polling daemon
+│   │   ├── weather.py           # Open-Meteo fetch for agent observe()
 │   │   ├── agent/               # LLM agent wake loop
-│   │   ├── sensors/             # BME280, DS18B20 drivers
-│   │   ├── camera/              # MJPEG streaming
+│   │   ├── sensors/             # bme280, ds18b20, mock, fan/pump drivers
+│   │   ├── camera/              # MJPEG streaming (+ off-Pi placeholder)
 │   │   └── routers/             # API endpoints
 │   ├── services/                # systemd units
 │   └── requirements.txt
@@ -193,5 +217,6 @@ garden-bot/
 │   ├── wiring.md               # GPIO wiring reference
 │   └── agent-plan.md           # Agent design + phases
 └── scripts/
-    └── setup-pi.sh             # Full Pi setup script
+    ├── setup-pi.sh             # Full Pi setup script
+    └── mock-devices.sh         # Configure mock devices for laptop testing
 ```

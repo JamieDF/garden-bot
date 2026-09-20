@@ -38,10 +38,14 @@ async def agent_journal(
     return get_journal(limit=limit, kind=kind)
 
 
+class WakeRequest(BaseModel):
+    reason: Optional[str] = None
+
+
 @router.post("/wake")
-async def agent_wake() -> dict:
+async def agent_wake(body: Optional[WakeRequest] = None) -> dict:
     """Trigger a wake cycle manually (for dev/testing)."""
-    return await _agent.wake()
+    return await _agent.wake(reason=body.reason if body else None)
 
 
 class ChatRequest(BaseModel):

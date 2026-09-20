@@ -92,7 +92,7 @@ class GardenAgent:
             return {"narration": decision.speak}
         return {}
 
-    async def wake(self) -> dict:
+    async def wake(self, reason: Optional[str] = None) -> dict:
         """One full wake cycle. Returns a result summary."""
         if not settings.llm_enabled:
             return {"status": "disabled"}
@@ -102,6 +102,8 @@ class GardenAgent:
 
         try:
             observation = await self._observe()
+            if reason:
+                observation["wake_reason"] = reason
             memory = self.recall()
             decision = await self.decide(observation, memory)
             outcome = self.act(decision)

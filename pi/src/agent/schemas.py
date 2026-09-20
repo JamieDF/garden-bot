@@ -3,21 +3,43 @@ Agent decision schemas - pydantic models double as JSON schemas
 for structured output (llama-server response_format / tool calling).
 """
 
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
+
+ACTIONS = Literal[
+    "none",       # do nothing
+    "speak",      # just narrate
+    "fan_on",     # turn a fan actuator on (manual)
+    "fan_off",    # turn a fan actuator off (manual)
+    "fan_auto",   # return a fan actuator to auto mode
+    "water",      # run a pump actuator for duration_s seconds
+    "alert",      # flag something for human attention
+    "log_note",   # write a note to the journal (memory)
+    "wait",       # explicitly decide to check again later
+]
 
 
 class Decision(BaseModel):
     """What the agent concludes on each wake.
 
-    Phase 0/1: narration only - action is whitelisted to none/speak.
-    Phase 2 will widen the action literal to real tool calls.
+    The model proposes; the deterministic safety layer in safety.py
+    disposes - hardware actions are validated before executing.
     """
 
     mood: str = Field(description="One word for how the garden feels")
     observation: str = Field(description="What the sensors show, in a sentence")
-    action: Literal["none", "speak"] = "none"
+    action: ACTIONS = "none"
+    device: Optional[str] = Field(
+        default=None,
+        description="Actuator device name for fan_*/water actions",
+    )
+    duration_s: Optional[float] = Field(
+        default=None, description="Seconds to run a pump for 'water'"
+    )
+    note: Optional[str] = Field(
+        default=None, description="Text to journal for 'log_note'"
+    )
     speak: str = Field(
         default="", description="One short sentence to say out loud (max ~20 words)"
     )

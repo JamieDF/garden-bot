@@ -29,6 +29,7 @@ class Settings(BaseSettings):
     llm_timeout: float = 60.0
     agent_wake_interval: int = 1800  # seconds between wakes
     agent_journal_recall: int = 5  # past decisions fed back as memory
+    agent_event_wake_min: int = 300  # min seconds between event-triggered wakes
 
     # Weather (Open-Meteo, no key needed). Agent observes weather only
     # when both are set.

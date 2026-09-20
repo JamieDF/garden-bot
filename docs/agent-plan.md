@@ -32,13 +32,14 @@ poller on threshold crossings.
 - `agent_journal` SQLite table + `/api/agent/{status,journal,wake}`
 - `garden-agent.service` systemd unit
 
-## Phase 1 — Cute narrator (smol model on the 3B+)
+## Phase 1 — Cute narrator (mostly done, on hosted API for now)
 
-- llama.cpp `llama-server` + SmolLM2-135M Q4_K_M (~100MB)
-- Decision schema: `{mood, observation, action: none|speak, speak}`
-- Observe adds external env: Open-Meteo weather (free, no key)
-- Event-driven wakes from poller thresholds
-- Dashboard: speech bubble + journal feed
+- ✅ Decision schema: `{mood, observation, action: none|speak, speak}`
+- ✅ Observe adds external env: Open-Meteo weather (`GROW_WEATHER_LAT/LON`)
+- ✅ Dashboard: bot card with narration + musings, journal feed, chat
+- ⏸ llama.cpp `llama-server` + SmolLM2-135M Q4_K_M (~100MB) — deferred,
+  using DeepSeek during laptop dev; config swap when on-Pi
+- ⬜ Event-driven wakes from poller thresholds (last item)
 
 ## Phase 2 — Actual agent (tool-capable LLM)
 
@@ -52,9 +53,10 @@ poller on threshold crossings.
 
 ## Phase 3 — Expansion
 
-- Watering relay/pump (same pattern as `fan.py`)
-- Vision: camera frame -> VLM (hosted or bigger local hardware)
-- Config-driven sensor labels/locations (not tent-flavored)
+- ✅ Config-driven sensors/actuators — device registry (`devices` table,
+  CRUD API, `mock` driver, per-device relay controllers incl. pumps)
+- ⬜ Watering relay/pump hardware (registry + `pump` driver already supports it)
+- ⬜ Vision: camera frame -> VLM (hosted or bigger local hardware)
 
 ## Hardware notes
 
